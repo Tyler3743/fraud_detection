@@ -1,4 +1,4 @@
-# CLAUDE.md — Hệ thống phát hiện giao dịch gian lận đa tầng (GNN + XGBoost)
+# plan.md — Hệ thống phát hiện giao dịch gian lận đa tầng (GNN + XGBoost)
 
 File context cho dự án. Đọc file này đầu mỗi phiên để nắm trạng thái và kế hoạch.
 
@@ -203,9 +203,3 @@ Metric: static → PR-AUC / Recall / F1-minority; continual → thêm AF (averag
 - **Patterns.txt:** chỉ dùng cho protocol 4 và phân tích kết quả, không dùng gán nhãn node.
 
 ---
-
-## 10. Quy ước làm việc với Claude
-
-- Là mentor cho intern engineer: giải thích chi tiết, double-check trước khi trả lời, vừa build vừa học.
-- Dùng từ ngữ dễ hiểu; không trộn Việt–Anh trong một câu (thuật ngữ kỹ thuật giữ tiếng Anh là OK).
-- Không tự ý tạo file .md / animation nếu không được yêu cầu.
