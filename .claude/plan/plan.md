@@ -199,6 +199,7 @@ Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split tr
 6. Train GraphSAGE (NeighborLoader + AMP + pos_weight).
 7. Xuất embedding.
 8. Lắp dataset XGBoost, train, đánh giá AUC-PR.
+   8b. Ablation 3 biến thể (V0 feature giao dịch / V1 +điểm mule / V2 +embedding) → bằng chứng đóng góp 1; kèm 1 hình grouped SHAP minh họa (xem mục 10, đóng góp 1).
 9. (Sau) đấu nối replay Kafka/Redpanda theo `Timestamp` để mô phỏng real-time.
 
 ---
@@ -226,6 +227,10 @@ Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split tr
 ### 2 đóng góp của đề tài (cập nhật khung 2026-06-15)
 
 1. **Pipeline 2 tầng node-embedding → XGBoost cấp giao dịch (ĐÓNG GÓP CHÍNH):** câu hỏi khoa học = embedding tài khoản từ GNN nhẹ (~515K node) + XGBoost đạt bao nhiêu % hiệu năng của GNN edge-level (~5M edge) với chi phí thấp hơn bao nhiêu? Báo cáo trên split-index chuẩn Altman. **Đối thủ thật (kiểm chứng được):** GFP+XGBoost (Snap ML, chạy lại được) và GNN end-to-end Egressy (số đã công bố, F1 68.16). **Chỉ là citation, KHÔNG dùng làm baseline:** NVIDIA blueprint (không công bố số benchmark công khai) và IEEE OTCON 2025 (paywalled, số không kiểm chứng được) — neo đóng góp vào cái chạy lại được.
+   - **Bằng chứng "embedding GNN có đóng góp" (chốt 2026-06-16):** xương sống là **ablation** (đo giá trị biên), SHAP chỉ là minh họa phụ.
+     - **Ablation 3 biến thể** trên cùng split-index, cùng nhãn, chỉ đổi vector vào XGBoost: **V0** chỉ feature giao dịch (= baseline "XGBoost thuần", sàn ~19.75 F1) → **V1** + điểm mule (2 số vô hướng) → **V2** + đủ embedding 128 chiều (pipeline đề xuất). Delta V0→V2 = con số chứng minh đóng góp 1; delta V1→V2 = embedding dày có hơn mỗi điểm mule vô hướng không (nếu không hơn cũng là phát hiện đáng nói).
+     - **Grouped SHAP (1 hình minh họa):** TreeSHAP trên XGBoost V2, gộp |SHAP| theo nhóm [feature giao dịch] / [emb gửi 64] / [emb nhận 64] / [điểm mule]. **Hai bẫy:** (1) lệch theo số cột — emb 128 cột gần như chắc lớn hơn giao dịch ~25 cột chỉ vì nhiều cột, đừng kết luận từ tổng thô; (2) tương quan emb↔feature thô làm TreeSHAP tán tín dụng → SHAP chỉ gợi ý, không phải phân rã nhân quả. Tính trên mẫu (đủ ca dương), không tính trên 1.3M dòng. → đây là lý do ablation là bằng chứng chính (miễn nhiễm số cột), SHAP là phụ.
+
 2. **Hệ thống phát hiện gian lận real-time hai đường — chịu tải (ĐÓNG GÓP 2 — LÀM THẬT, đo đạc):** trục đo KHÁC đóng góp 1 — latency/throughput dưới tải, không phải PR-AUC. Real-time hợp lệ = xử lý theo **sự kiện** (không gom lô), đạt **SLA latency công bố trước** (vd p99 < ngưỡng X ms, X neo vào nghiệp vụ cổng thanh toán), ổn định dưới tải.
    - **Đường nóng (mỗi giao dịch, PHẢI đạt SLA — chạy CPU, KHÔNG đụng GPU):** giao dịch tới → tra embedding từ cache RAM (Redis/dict in-process) → ghép feature → XGBoost predict → điểm fraud. Đây là đường quyết định "có real-time hay không". Tối ưu: cache lookup O(1), tránh allocate trong vòng nóng, serialize gọn.
    - **Đường nguội (chạy nền, bất đồng bộ, KHÔNG nằm trong SLA — dùng GPU):** GraphSAGE **inductive inference** cập nhật embedding cho tài khoản bị ảnh hưởng (sample k-hop `[15,10]`), ghi đè cache. Không chặn đường nóng. Không train lại. Embedding có thể hơi cũ → sinh ra đường cong staleness.
