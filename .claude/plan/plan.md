@@ -65,21 +65,12 @@ D:\ct551_v2\
 
 ## 4. Quy trình split đã chốt (đã triển khai trong `temporal_split.py`)
 
-**Nguyên tắc:** chia theo **thời gian (chronological)**, KHÔNG random — để tránh leakage tương lai và phản ánh đúng lúc deploy (train quá khứ, test tương lai). Cắt theo **ranh giới đầu ngày (00:00)** vì hệ thống refresh node embedding theo ngày; cắt giữa ngày sẽ gây leakage.
+**Nguyên tắc:** chia theo **thời gian (chronological)**, KHÔNG random — để tránh leakage tương lai và phản ánh đúng lúc deploy (train quá khứ, test tương lai), train 60/20/20 như Altman 2023
 
-**Kết quả split 60/20/20 (snap theo ngày → tỉ lệ thực 54.5/19/26.5):**
-
-| Split | Ngày        | Số giao dịch | %      | Fraud | Fraud rate |
-| ----- | ----------- | ------------ | ------ | ----- | ---------- |
-| train | 09/01–09/05 | 2,766,832    | 54.48% | 1,999 | 0.0722%    |
-| val   | 09/06–09/07 | 964,840      | 19.00% | 1,028 | 0.1065%    |
-| test  | 09/08–09/18 | 1,346,673    | 26.52% | 2,150 | 0.1597%    |
-
-- Ranh giới: train|val = đầu ngày **2022/09/06**; val|test = đầu ngày **2022/09/08**.
 - Đã assert không chồng lấn thời gian giữa các tập.
 - **Distribution shift:** fraud rate tăng dần train→test (~2.2×). Đây là lý do bài toán cần continual learning, và là lý do dùng PR-AUC/Recall thay vì Accuracy.
 
-> Khớp **nguyên tắc** với split của paper gốc IBM (Altman et al. 2023): 60-20-20 temporal theo 2 mốc t1, t2; dựng graph lũy tiến (train-graph chỉ chứa train edges; val-graph = train+val; test-graph = all; chỉ eval trên index tương ứng). **Khác biệt nhỏ:** paper cắt theo tỉ lệ index giao dịch chính xác (t1, t2 có thể rơi giữa ngày), còn ta snap theo đầu ngày → 54.5/19/26.5. Chấp nhận được vì ta tự chạy lại mọi baseline trên cùng split; có thể thêm bản cắt theo index làm ablation.
+> Khớp **nguyên tắc** với split của paper gốc IBM (Altman et al. 2023): 60-20-20 temporal theo 2 mốc t1, t2; dựng graph lũy tiến (train-graph chỉ chứa train edges; val-graph = train+val; test-graph = all; chỉ eval trên index tương ứng). **Khác biệt nhỏ:** paper cắt theo tỉ lệ index giao dịch chính xác (t1, t2 có thể rơi giữa ngày), còn ta snap theo đầu ngày → 54.5/19/26.5.
 
 ---
 
@@ -124,6 +115,17 @@ Cùng mã `Account` có thể thuộc bank khác nhau → **dùng khóa tuple** 
 - **Số tròn:** tỉ lệ GD số tiền tròn hoặc ngay dưới ngưỡng báo cáo (structuring).
 
 **Bắt buộc:** áp `log1p` cho feature tiền/đếm (lệch phải nặng) trước khi scale; fit scaler (z-score/robust) **chỉ trên train** rồi transform test (fit toàn bộ = leakage).
+
+#### Quyết định phiên 2026-06-27 (tham khảo paper cho `raw_feature.py`)
+
+Đã đối chiếu 2 trường phái feature node: thống kê thủ công (Johannessen & Jullum 2025 — degree có trọng số amount, std/median, đếm neighbor theo loại) và pattern đồ thị (GFP/Blanuša 2024 — fan-in/out, scatter-gather, cycle). Các quyết định:
+
+- **KHÔNG nhồi pattern count kiểu GFP vào `raw_feature.py`.** Để GraphSAGE tự học cấu trúc; pattern của GFP giữ cho baseline GFP+XGBoost. Tránh làm mờ ranh giới "GNN học được" với "mớm sẵn", giữ đóng góp 1 sạch.
+- **Cửa sổ tính feature: LŨY TIẾN (chuẩn Altman).** Feature train tính trên train edges; val trên train+val; test trên toàn bộ. Nhất quán graph lũy tiến, xử lý cold-start node test. _Vẫn fit scaler chỉ trên train; mọi thứ dùng label vẫn học chỉ trên train._ (Lưu ý: `scale_features` ở `raw_feature_nhap.py` đang nhận 3 df rời → cần sửa cho khớp cửa sổ lũy tiến.)
+- **Payment Format → dùng PROPORTION (tỉ lệ mỗi format, tách chiều gửi/nhận), KHÔNG target encoding cho node feature.** Proportion không đụng label → không leakage. Target encoding (bản nháp) để dành cho tầng XGBoost cấp giao dịch nếu cần.
+- **Nên thêm — pass-through ratio** `abs(net_flow)/(tong_gui+tong_nhan+eps)`: không thứ nguyên, gần 0 = mule chảy-qua, không cần log, không leakage. Cân nhắc thêm median amount (gửi/nhận).
+- **log1p:** giữ tách bạch raw (`compute_feature`) với transform (`scale_features`); không nhúng log1p vào `compute_feature`. `net_flow` âm → không log1p (thay bằng pass-through ratio, hoặc signed-log). Cột ratio [0,1] không log.
+- **Bug cần sửa:** `time_min/max` chỉ lấy từ nhóm `sender` → `active_day`/`tx_per_day` chỉ phản ánh chiều gửi; node chỉ-nhận mất span. Cần gộp timestamp cả gửi lẫn nhận khi tính `active_day`.
 
 ### Bước 4 — Dựng graph
 

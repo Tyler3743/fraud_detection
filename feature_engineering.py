@@ -113,7 +113,7 @@ def add_target_encoding(
     features_test: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Thêm cột payment_format_encoded vào train / val / test.
+    Thêm cột _encoded vào train / val / test.
 
     Cách hoạt động:
     - Fit encoding map trên train: Payment Format → mean(Is Laundering)
