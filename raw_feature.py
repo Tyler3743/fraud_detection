@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 LOG1P_COLS = [
     "num_send", "out_degree", "tx_per_day", "std_send", "mean_send", "tong_gui",
     "tong_nhan", "std_receive", "mean_receive", "num_bank_out", "num_bank_in",
-    "in_degree", "num_receive", "active_day",
+    "in_degree", "num_receive", "active_day","max_send","min_send","max_receive","min_receive",
 ]
 
 def load_data():
@@ -33,7 +33,9 @@ def compute_feature(df_split:pd.DataFrame):
         time_max1=("Timestamp","max"),
         cross_bank_ratio=("is_cross_bank","mean"),
         cross_currency_ratio=("is_currency_change","mean"),
-        round_amount_ratio=("is_round_amount","mean")
+        round_amount_ratio=("is_round_amount","mean"),
+        min_send=("Amount Paid", "min"),
+        max_send=("Amount Paid", "max")
     )
     receiver=df_split.groupby("dest").agg(
         tong_nhan=("Amount Received","sum"),
@@ -44,7 +46,9 @@ def compute_feature(df_split:pd.DataFrame):
         currency_mix_in=("Receiving Currency","nunique"),
         in_degree=("src","nunique"),
         time_min2=("Timestamp","min"),
-        time_max2=("Timestamp","max")
+        time_max2=("Timestamp","max"),
+        min_receive=("Amount Received", "min"),
+        max_receive=("Amount Received", "max")
     )
     node_feature=sender.join(receiver, how="outer")
     node_feature["net_flow"]=node_feature["tong_nhan"].fillna(0) - node_feature["tong_gui"].fillna(0)
@@ -63,7 +67,7 @@ def compute_feature(df_split:pd.DataFrame):
     final_cols=["tong_gui","num_send","mean_send","std_send","num_bank_out","currency_mix_out","out_degree","cross_bank_ratio","round_amount_ratio",
                 "cross_currency_ratio",
                 "tong_nhan","num_receive","mean_receive","std_receive","num_bank_in","currency_mix_in","in_degree",
-                "net_flow","active_day","tx_per_day","is_mule","net_flow_ratio"]
+                "net_flow","active_day","tx_per_day","is_mule","net_flow_ratio","min_send","max_send","min_receive","max_receive"]
     
     return node_feature[final_cols]
 
@@ -75,7 +79,7 @@ def payment_format_proportion(node_feature, df_window, format=None):
     dummies=dummies.reindex(columns=format,fill_value=0)
     out_prop = dummies.groupby(tx["src"]).mean()
     out_prop.columns=[f"pf_{c.replace(' ','_')}_out" for c in format]
-    in_prop = dummies.groupby(tx["src"]).mean()
+    in_prop = dummies.groupby(tx["dest"]).mean()
     in_prop.columns=[f"pf_{c.replace(' ','_')}_in" for c in format]
 
     res=node_feature.join(out_prop).join(in_prop)
@@ -99,7 +103,7 @@ def scale_features(train_df, val_df, test_df, log1p_cols=LOG1P_COLS):
         for k,f in frames.items()
     }
     return scaled["train"], scaled["val"], scaled["test"], scaler
-def save_feature(train_df, val_df, test_df, out_dir="dataset-high"):
+def save_feature(train_df, val_df, test_df, out_dir="dataset_high"):
     os.makedirs(out_dir,exist_ok=True)
     paths={}
     for name, f in [("train",train_df),("val",val_df),("test",test_df)]:
