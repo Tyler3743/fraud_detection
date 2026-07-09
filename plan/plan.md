@@ -1,6 +1,6 @@
 # plan.md — Hệ thống phát hiện giao dịch gian lận đa tầng (GNN + XGBoost)
 
-File context cho dự án. Đọc file này đầu mỗi phiên để nắm trạng thái và kế hoạch.
+File context cho dự án. Đọc file này đầu mỗi phiên để nắm trạng thái và kế hoạch. đọc hết file code để hiểu ngữ cảnh
 
 ---
 
@@ -101,7 +101,7 @@ Cùng mã `Account` có thể thuộc bank khác nhau → **dùng khóa tuple** 
 
 Đã làm (mục 4). Hệ quả: mọi feature/embedding chỉ tính từ dữ liệu trong cửa sổ train; tài khoản ở test dùng lại embedding học từ train (inductive). Khớp đúng cơ chế "refresh embedding theo batch" của kiến trúc.
 
-### Bước 3 — Feature engineering cho node (chỉ tính trên train)
+### Bước 3 — Feature engineering cho node cho hybrid và feature edge cho nhóm 1 và 2
 
 ~20–30 feature số/node, nhóm theo nghiệp vụ:
 
@@ -174,7 +174,8 @@ Metric đối chiếu benchmark IBM: **minority-class F1 cấp giao dịch** (k�
 
 ## 7. Cách chia dữ liệu cho thực nghiệm (đã chốt — cập nhật 2026-06-15)
 
-Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split trong mọi kết quả.
+Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split trong mọi kết quả. temporal split 60/20/20
+so sánh edge level giữa các phương pháp thực nghiệm
 
 ---
 
@@ -204,11 +205,11 @@ Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split tr
 
 ### Literature liên quan (tóm tắt ngắn)
 
-**Mốc so sánh trực tiếp:**
+**Mốc so sánh trực tiếp (các bài báo có trong folder paper):**
 
-- **Altman 2023** (tạo ra dataset IBM AML): đặt "luật chơi" chuẩn — chia dữ liệu theo thời gian 60/20/20, phân loại ở cấp giao dịch, đo bằng F1 lớp thiểu số. Mình bám chuẩn này để số so được với họ.
-- **Egressy 2024**: model GNN mạnh nhất hiện nay trên HI-Small (F1 68.16). Dùng làm mốc trên để biết pipeline mình đạt bao nhiêu % so với đỉnh.
-- **Blanuša 2024 (GFP)**: trích đặc trưng đồ thị (đếm fan-in/out, chu trình...) rồi đưa vào XGBoost; chạy nhanh trên CPU, có sẵn trong thư viện Snap ML (cài bằng pip). Đây là đối thủ trực tiếp cùng triết lý "đặc trưng đồ thị + cây quyết định", và mình chạy lại được để so head-to-head.
+- **Realistic Synthetic Financial Transactions for Anti-Money Laundering Models** (tạo ra dataset IBM AML): đặt "luật chơi" chuẩn — chia dữ liệu theo thời gian 60/20/20, phân loại ở cấp giao dịch, đo bằng F1 lớp thiểu số. Mình bám chuẩn này để số so được với họ.
+- **Provably Powerful Graph Neural Networks for Directed Multigraphs**: model GNN mạnh nhất hiện nay trên HI-Small (F1 68.16). Dùng làm mốc trên để biết pipeline mình đạt bao nhiêu % so với đỉnh.
+- **Graph Feature Preprocessor**: trích đặc trưng đồ thị (đếm fan-in/out, chu trình...) rồi đưa vào XGBoost; chạy nhanh trên CPU, có sẵn trong thư viện Snap ML (cài bằng pip). Đây là đối thủ trực tiếp cùng triết lý "đặc trưng đồ thị + cây quyết định", và mình chạy lại được để so head-to-head.
 - **Amatriciana 2025**: rất giống hướng A của mình (GraphSAGE cấp tài khoản). Khác biệt then chốt: họ dùng toàn bộ đồ thị, không cắt theo thời gian → lộ thông tin tương lai. Vừa là tham chiếu gần nhất, vừa là ví dụ minh chứng vì sao phải chia theo thời gian.
   và một số bài báo đang đọc thêm sau nếu cần thiết
   **Chỉ cần cho hướng v2 (real-time / học liên tục):** RIPPLE++ 2025 (kỹ thuật chạy GNN incremental trên đồ thị thay đổi liên tục, chưa ai áp lên dữ liệu tài chính); review continual KU Leuven 2025 (tổng hợp các kỹ thuật học liên tục); GFP/NVIDIA (cho con số throughput/latency tham khảo).

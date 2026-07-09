@@ -2,3 +2,4 @@ dataset_high/
 *.csv
 .idea/
 .paper/
+echo "B2206011-TranPhuocTai-LuanVan*" >> .gitignore

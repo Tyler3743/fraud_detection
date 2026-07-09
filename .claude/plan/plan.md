@@ -124,10 +124,10 @@ Cùng mã `Account` có thể thuộc bank khác nhau → **dùng khóa tuple** 
 
 ### Bước 4 — Dựng graph và thực nghiệm
 
-Nhóm 1 (dạng classifier, cơ bản, tabular): logistic regression (application of classical), random forest (application of classical), xgboost (altman 2023), lightGBM (altman 2023), MLP (a customer-level fradulent)
-Nhóm 2 (GNN): GIN, GAT, GraphSage, GCN, skip-GCN, BWGNN
+Nhóm 1 (dạng cổ điển): logistic regression (application of classical, tuyến tính), decision tree(cây đơn) random forest (application of classical, bagging), xgboost (altman 2023, boosting), MLP (a customer-level fradulent, neural network)
+Nhóm 2 (GNN): GIN, GAT, GraphSage, GCN, skip-GCN, BWGNN, evovleGCN
 Nhóm 3 (hybrid): GraphSAGE+XGBoost, GCN+XGBoost, GAT+XGBoost, skip-GCN+XGBoost, GIN+XGBoost, BWGNN+XGBoost, GFP+XGBoost, GFP+LightGBM
-phần thực nghiệm có thể chỉnh sửa
+phần thực nghiệm 2 và 3 đang suy nghĩ có thể chỉnh sửa
 
 - **Node:** mỗi tài khoản (khóa tuple Bước 1) + vector feature Bước 3.
 - **Cạnh:** **gộp** nhiều giao dịch giữa cùng cặp (gửi→nhận) thành 1 cạnh; edge feature = tổng tiền + số lần. Nhẹ RAM; chấm điểm từng GD đẩy sang XGBoost.
@@ -172,9 +172,9 @@ Metric đối chiếu benchmark IBM: **minority-class F1 cấp giao dịch** (k�
 
 ---
 
-## 7. Cách chia dữ liệu cho thực nghiệm (đã chốt — cập nhật 2026-06-15)
+## 7. Cách chia dữ liệu và độ đo cho thực nghiệm
 
-Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split trong mọi kết quả.
+Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split trong mọi kết quả. 60/20/20 temporal split
 
 ---
 
