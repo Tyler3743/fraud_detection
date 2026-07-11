@@ -12,7 +12,7 @@ File context cho dự án. Đọc file này đầu mỗi phiên để nắm tr�
 
 **Kiến trúc 2 tầng:**
 
-- **Tầng 1 — GNN (GraphSAGE):** học embedding cấu trúc mạng cho mỗi tài khoản, dự đoán điểm "mule" của tài khoản.
+- **Tầng 1 — GNN encoder:** học embedding cấu trúc mạng cho mỗi tài khoản, dự đoán điểm "mule" của tài khoản.
 - **Tầng 2 — XGBoost (CPU):** phân loại `Is Laundering` ở cấp giao dịch, dùng feature giao dịch + embedding + điểm mule của hai đầu giao dịch từ Tầng 1.
 
 **Dataset:** IBM AMLworld (Altman et al. 2023).
@@ -72,22 +72,7 @@ D:\ct551_v2\
 
 > Khớp **nguyên tắc** với split của paper gốc IBM (Altman et al. 2023): 60-20-20 temporal theo 2 mốc t1, t2; dựng graph lũy tiến (train-graph chỉ chứa train edges; val-graph = train+val; test-graph = all; chỉ eval trên index tương ứng).
 
----
-
-## 5. Tiến trình hiện tại
-
-**Đã xong:**
-
-- [x] `nodelabel.py` → `AccountFraudLabel.csv` (gán nhãn node từ nhãn cạnh).
-- [x] `temporal_split.py` → logic split temporal 60/20/20 (đã sửa: tên file, giữ string bank/account, dùng `.iloc`, in thống kê, assert no-leakage).
-- [x] Khảo sát cách split của các paper (IBM dataset paper, review 2503.24259, BeGin, collaborative AML) và chốt cách chia dữ liệu (xem mục 7).
-- [x] `temporal_split_index.py` → cắt-theo-index 60/20/20 (chuẩn Altman) — **split chính**. Đã qua review (PASS sau 1 vòng sửa). Tie-breaking đặt ranh giới theo GIÁ TRỊ Timestamp (dồn trọn nhóm cùng thời điểm về một phía) để chặn leakage hai chiều; có assert no-overlap strict + assert leading-zero kiểm nội dung. Output `dataset_high/HI-Small_Trans_split_index.csv` (60.00/20.00/20.00).
-- node feature engineering:
-  **Đang/kế tiếp:** xây Tầng 1 (GNN), so sánh với các mô hình train khác (đang nghiên cứu) — pipeline mục 8 bước 5–8, báo cáo kết quả chính trên split-index. (Split-day giữ làm baseline cho đóng góp 2 real-time, không phải để so sánh protocol.)
-
----
-
-## 6. Thiết kế kỹ thuật Tầng 1 — GNN (đã chốt)
+## 5. thiết kế kỹ thuật để chọn ra mô hình tốt nhất
 
 ### Bước 0 — Nhãn cho node (nền tảng)
 
@@ -101,9 +86,9 @@ Cùng mã `Account` có thể thuộc bank khác nhau → **dùng khóa tuple** 
 
 Đã làm (mục 4). Hệ quả: mọi feature/embedding chỉ tính từ dữ liệu trong cửa sổ train; tài khoản ở test dùng lại embedding học từ train (inductive). Khớp đúng cơ chế "refresh embedding theo batch" của kiến trúc.
 
-### Bước 3 — Feature engineering cho node cho hybrid và feature edge cho nhóm 1 và 2
+### Bước 3 — feature_node cho nhóm 3 còn nhóm 1 và 2
 
-~20–30 feature số/node, nhóm theo nghiệp vụ:
+feature_node: ~20–30 feature số/node, nhóm theo nghiệp vụ:
 
 - **Dòng tiền:** tổng gửi, tổng nhận, số GD gửi/nhận, mean/std số tiền; quan trọng nhất `net_flow = nhận − gửi` (mule ≈ 0 vì tiền chỉ chảy qua).
 - **Đa dạng đối tác:** out-degree riêng biệt, in-degree riêng biệt → bắt fan-out / fan-in.
@@ -115,18 +100,11 @@ Cùng mã `Account` có thể thuộc bank khác nhau → **dùng khóa tuple** 
 
 **Bắt buộc:** áp `log1p` cho feature tiền/đếm (lệch phải nặng) trước khi scale; fit scaler (z-score/robust) **chỉ trên train** rồi transform test (fit toàn bộ = leakage).
 
-#### Quyết định phiên 2026-06-27 (tham khảo paper cho `raw_feature.py`)
-
-Đã đối chiếu 2 trường phái feature node: thống kê thủ công (Johannessen & Jullum 2025 — degree có trọng số amount, std/median, đếm neighbor theo loại) và pattern đồ thị (GFP/Blanuša 2024 — fan-in/out, scatter-gather, cycle). Các quyết định:
-
-- **KHÔNG nhồi pattern count kiểu GFP vào `raw_feature.py`.** Để GraphSAGE tự học cấu trúc; pattern của GFP giữ cho baseline GFP+XGBoost. Tránh làm mờ ranh giới "GNN học được" với "mớm sẵn", giữ đóng góp 1 sạch.
-- **Cửa sổ tính feature: LŨY TIẾN (chuẩn Altman).** Feature train tính trên train edges; val trên train+val; test trên toàn bộ. Nhất quán graph lũy tiến, xử lý cold-start node test. _Vẫn fit scaler chỉ trên train; mọi thứ dùng label vẫn học chỉ trên train._ (Lưu ý: `scale_features` ở `raw_feature_nhap.py` đang nhận 3 df rời → cần sửa cho khớp cửa sổ lũy tiến.)
-
 ### Bước 4 — Dựng graph và thực nghiệm
 
 Nhóm 1 (dạng classifier, cơ bản, tabular): logistic regression (application of classical), random forest (application of classical), xgboost (altman 2023), lightGBM (altman 2023), MLP (a customer-level fradulent)
-Nhóm 2 (GNN): GIN, GAT, GraphSage, GCN, skip-GCN, BWGNN
-Nhóm 3 (hybrid): GraphSAGE+XGBoost, GCN+XGBoost, GAT+XGBoost, skip-GCN+XGBoost, GIN+XGBoost, BWGNN+XGBoost, GFP+XGBoost, GFP+LightGBM
+Nhóm 2 (GNN): GIN, GAT, GraphSage, GCN, skip-GCN
+Nhóm 3 (hybrid): GraphSAGE+XGBoost, GCN+XGBoost, GAT+XGBoost, skip-GCN+XGBoost, GIN+XGBoost, GFP+XGBoost, GFP+LightGBM
 phần thực nghiệm có thể chỉnh sửa
 
 - **Node:** mỗi tài khoản (khóa tuple Bước 1) + vector feature Bước 3.
@@ -172,14 +150,14 @@ Metric đối chiếu benchmark IBM: **minority-class F1 cấp giao dịch** (k�
 
 ---
 
-## 7. Cách chia dữ liệu cho thực nghiệm (đã chốt — cập nhật 2026-06-15)
+## 6. Cách chia dữ liệu cho thực nghiệm
 
 Metric chính: PR-AUC / Recall / F1-minority trên split-index. Ghi rõ split trong mọi kết quả. temporal split 60/20/20
 so sánh edge level giữa các phương pháp thực nghiệm
 
 ---
 
-## 8. Thứ tự công việc (lộ trình)
+## 7. Thứ tự công việc (lộ trình)
 
 1. Load + tối ưu dtype (giữ string bank/account).
 2. Kiểm tra danh tính node (tuple account và bank ID).
@@ -194,14 +172,14 @@ so sánh edge level giữa các phương pháp thực nghiệm
 
 ---
 
-## 9. Vấn đề mở / cần lưu ý
+## 8. Vấn đề mở / cần lưu ý
 
 - **Label leakage (nhẹ, chấp nhận v1):** `AccountFraudLabel.csv` gán fraud theo toàn timeline. V1 giữ nhãn global; v2 có thể tính nhãn as-of-time làm ablation.
 - **Tie-breaking khi tái dùng split cho dataset khác (technical debt):** `temporal_split_index.py` đặt ranh giới theo giá trị Timestamp; logic này cần kiểm lại edge case khi không có dòng nào vượt boundary (vd áp lên LI-Small cross-test) trước khi tái dùng. Không ảnh hưởng HI-Small.
 
 ---
 
-## 10. Định vị khoa học & hướng đóng góp (cập nhật 2026-06-11, đã xác minh từ nguồn)
+## 9. Định vị khoa học & hướng đóng góp (cập nhật 2026-06-11, đã xác minh từ nguồn)
 
 ### Literature liên quan (tóm tắt ngắn)
 
@@ -210,7 +188,7 @@ so sánh edge level giữa các phương pháp thực nghiệm
 - **Realistic Synthetic Financial Transactions for Anti-Money Laundering Models** (tạo ra dataset IBM AML): đặt "luật chơi" chuẩn — chia dữ liệu theo thời gian 60/20/20, phân loại ở cấp giao dịch, đo bằng F1 lớp thiểu số. Mình bám chuẩn này để số so được với họ.
 - **Provably Powerful Graph Neural Networks for Directed Multigraphs**: model GNN mạnh nhất hiện nay trên HI-Small (F1 68.16). Dùng làm mốc trên để biết pipeline mình đạt bao nhiêu % so với đỉnh.
 - **Graph Feature Preprocessor**: trích đặc trưng đồ thị (đếm fan-in/out, chu trình...) rồi đưa vào XGBoost; chạy nhanh trên CPU, có sẵn trong thư viện Snap ML (cài bằng pip). Đây là đối thủ trực tiếp cùng triết lý "đặc trưng đồ thị + cây quyết định", và mình chạy lại được để so head-to-head.
-- **Amatriciana 2025**: rất giống hướng A của mình (GraphSAGE cấp tài khoản). Khác biệt then chốt: họ dùng toàn bộ đồ thị, không cắt theo thời gian → lộ thông tin tương lai. Vừa là tham chiếu gần nhất, vừa là ví dụ minh chứng vì sao phải chia theo thời gian.
+- **Amatriciana**: rất giống hướng A của mình (GraphSAGE cấp tài khoản). Khác biệt then chốt: họ dùng toàn bộ đồ thị, không cắt theo thời gian → lộ thông tin tương lai. Vừa là tham chiếu gần nhất, vừa là ví dụ minh chứng vì sao phải chia theo thời gian.
   và một số bài báo đang đọc thêm sau nếu cần thiết
   **Chỉ cần cho hướng v2 (real-time / học liên tục):** RIPPLE++ 2025 (kỹ thuật chạy GNN incremental trên đồ thị thay đổi liên tục, chưa ai áp lên dữ liệu tài chính); review continual KU Leuven 2025 (tổng hợp các kỹ thuật học liên tục); GFP/NVIDIA (cho con số throughput/latency tham khảo).
 
@@ -234,13 +212,11 @@ so sánh edge level giữa các phương pháp thực nghiệm
 
 ### Baseline bắt buộc cho đóng góp 1
 
-GFP+XGBoost(Graph feature preprocessor), đối thiếu tham số public của Altman 2023: GIN 28.7, PNA 56.8, GFP+XGBoost 63.2, Multi-PNA+EU 68.2 (F1 minority-class, HI-Small, temporal split)
+GFP+XGBoost(Graph feature preprocessor), đối chiếu tham số public của Altman 2023: GIN 28.7, PNA 56.8, GFP+XGBoost 63.2, Multi-PNA+EU 68.2 (F1 minority-class, HI-Small, temporal split)
 Những câu hỏi nên có trong đầu khi thực nghiệm ngoài train mô hình: sử dụng hàm mất mát nào, fine tuning như thế nào, approach như thế nào, luồng dữ liệu như thế nào, các bài báo baseline có luồng dữ liệu, approach như thế nào, sử dụng các phép đo nào: pr-auc, f1, f1 minority-class
 
 ### Việc rút ra cho bước hiện tại (chia dữ liệu)
 
 - **Split chính = cắt-index chuẩn Altman.** Mọi kết quả chính của đóng góp 1 báo cáo trên split này.
-- Split-day giữ lại làm baseline cho đóng góp 2 (real-time refresh theo ngày), không dùng báo cáo metric chính.
-- Mọi kết quả xuất ra phải ghi rõ split.
 
 ---

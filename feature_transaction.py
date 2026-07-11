@@ -1,15 +1,14 @@
 import os
 import pandas as pd
-import numpy as np
+import numpy as np 
 from sklearn.preprocessing import StandardScaler
 
 SRC = "dataset_high/HI-Small_Trans_split_index.csv"
 OUT = "dataset_high/transaction_features"
 
-SCALE_COLS = ["amt_paid_log", "amt_recv_log", "amt_ratio_log", "hour", "day_of_week"]
+SCALE_COLS = ["amt_paid_log", "amt_recv_log", "amt_ratio_log"]
 
 def load_data():
-    # Sử dụng engine pyarrow để đọc nhanh và nhẹ RAM
     dt = {"From Bank": str, "Account": str, "To Bank": str, "Account.1": str, "split": str}
     df = pd.read_csv(SRC, dtype=dt, engine="pyarrow")
     df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%Y/%m/%d %H:%M")
@@ -20,11 +19,8 @@ def load_data():
 def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=df.index)
 
-    # --- Tiền: Dùng log1p để tránh log(0) ---
     out["amt_paid_log"] = np.log1p(df["Amount Paid"])
     out["amt_recv_log"] = np.log1p(df["Amount Received"])
-    
-    # Sửa lỗi chia cho 0 và log(0) tại đây
     ratio = df["Amount Received"] / (df["Amount Paid"] + 1e-8)
     out["amt_ratio_log"] = np.log1p(ratio)
 
@@ -36,8 +32,12 @@ def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     out["is_self_loop"]      = (df["src"] == df["dest"]).astype("int8")
 
     # --- Thời gian ---
-    out["hour"]        = df["Timestamp"].dt.hour.astype("int16")
-    out["day_of_week"] = df["Timestamp"].dt.dayofweek.astype("int16")
+    hour = df["Timestamp"].dt.hour.astype("int16")
+    out["hour_sin"] = np.sin(2*np.pi*hour/24)
+    out["hour_cos"] = np.cos(2*np.pi*hour/24)
+    day_of_week = df["Timestamp"].dt.dayofweek.astype("int16")
+    out["day_of_week"] = np.sin(2*np.pi*day_of_week/7)
+    out["day_of_week"] = np.cos(2*np.pi*day_of_week/7)
 
     # --- One-hot (Tối ưu RAM bằng cách ép dtype ngay từ đầu) ---
     pf  = pd.get_dummies(df["Payment Format"],   prefix="pf", dtype="int8")
@@ -52,7 +52,6 @@ def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def scale_features(feat: pd.DataFrame, scale_cols=SCALE_COLS):
-    """Fit StandardScaler CHỈ trên split=='train', transform toàn bộ để tránh data leakage."""
     tr = feat["split"] == "train"
     scaler = StandardScaler().fit(feat.loc[tr, scale_cols].values)
     
