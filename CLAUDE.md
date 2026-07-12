@@ -5,7 +5,7 @@
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-không được sửa plan.md những gì bạn cần làm là cho tôi tham khảo ý tưởng của bạn, người sửa plan.md chỉ là tôi thôi
+không được sửa các file bạn chỉ sửa dưới dạng text trong cuộc trò chuyện
 
 ## 1. Think Before Coding
 
