@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 LOG1P_COLS = [
     "num_send", "out_degree", "tx_per_day", "std_send", "mean_send", "tong_gui",
     "tong_nhan", "std_receive", "mean_receive", "num_bank_out", "num_bank_in",
-    "in_degree", "num_receive", "active_day","max_send","min_send","max_receive","min_receive",
+    "in_degree", "num_receive", "active_day","max_send","min_send","max_receive","min_receive","median_send","median_receive"
 ]
 
 def load_data():
@@ -34,6 +34,9 @@ def compute_feature(df_split:pd.DataFrame):
         cross_bank_ratio=("is_cross_bank","mean"),
         cross_currency_ratio=("is_currency_change","mean"),
         round_amount_ratio=("is_round_amount","mean"),
+        median_send = ("Amount Paid", "median"),
+        skew_send   = ("Amount Paid", "skew"),
+        kurt_send   = ("Amount Paid", lambda s: s.kurt()),
         min_send=("Amount Paid", "min"),
         max_send=("Amount Paid", "max")
     )
@@ -47,6 +50,9 @@ def compute_feature(df_split:pd.DataFrame):
         in_degree=("src","nunique"),
         time_min2=("Timestamp","min"),
         time_max2=("Timestamp","max"),
+        median_receive = ("Amount Received", "median"),
+        skew_receive   = ("Amount Received", "skew"),
+        kurt_receive   = ("Amount Received", lambda s: s.kurt()),
         min_receive=("Amount Received", "min"),
         max_receive=("Amount Received", "max")
     )
@@ -65,7 +71,7 @@ def compute_feature(df_split:pd.DataFrame):
     )
     node_feature["is_mule"]=node_feature.index.isin(mule_nodes).astype(int)
     final_cols=["tong_gui","num_send","mean_send","std_send","num_bank_out","currency_mix_out","out_degree","cross_bank_ratio","round_amount_ratio",
-                "cross_currency_ratio",
+                "cross_currency_ratio", "median_send", "skew_send", "kurt_send","median_receive","skew_receive","kurt_receive",
                 "tong_nhan","num_receive","mean_receive","std_receive","num_bank_in","currency_mix_in","in_degree",
                 "net_flow","active_day","tx_per_day","is_mule","net_flow_ratio","min_send","max_send","min_receive","max_receive"]
     

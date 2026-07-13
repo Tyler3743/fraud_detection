@@ -1,6 +1,5 @@
 dataset_high/
 *.csv
 .idea/
-.paper/
+.*pdf
 *.docx
-*.claude
