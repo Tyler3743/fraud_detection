@@ -9,7 +9,7 @@ order = df_trans["Timestamp"].sort_values(kind="mergesort").index
 df_trans=df_trans.iloc[order].reset_index(drop=True)
 
 #chia dữ liệu theo train/test/val
-n=len(df)
+n=len(df_trans)
 t1=int(n*0.6)
 t2=int(n*0.8)
 ts1=df_trans["Timestamp"].iloc[t1]
@@ -19,11 +19,11 @@ ts2=df_trans["Timestamp"].iloc[t2]
 df_trans["split"]="test"
 df_trans.loc[df_trans["Timestamp"]<ts2,"split"]="val"
 df_trans.loc[df_trans["Timestamp"]<ts1,"split"]="train"
-assert df[df.split == "train"]["Timestamp"].max() < df[df.split == "val"]["Timestamp"].min(), \
+assert df_trans[df_trans.split == "train"]["Timestamp"].max() < df_trans[df_trans.split == "val"]["Timestamp"].min(), \
     "Leakage: Timestamp chong lan giua train va val"
-assert df[df.split == "val"]["Timestamp"].max() < df[df.split == "test"]["Timestamp"].min(), \
+assert df_trans[df_trans.split == "val"]["Timestamp"].max() < df_trans[df_trans.split == "test"]["Timestamp"].min(), \
     "Leakage: Timestamp chong lan giua val va test"
 
 # xuất file csv
 df_trans.to_csv("dataset_high/HI-Small_Trans_split_index.csv", index=False)
-print(f"Đã lưu: {dataset_high/HI-Small_Trans_split_index.csv}")
+print(f"Đã lưu: {'dataset_high/HI-Small_Trans_split_index.csv'}")

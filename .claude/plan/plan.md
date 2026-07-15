@@ -95,10 +95,17 @@ Khóa `(Bank, Account)`: gửi `(From Bank, Account)`, nhận `(To Bank, Account
 
 - `assemble_txn.py`: mỗi giao dịch ⟵ `[transaction feat] + [node feat src] + [node feat dest] (+ edge feat cặp)`. → ma trận nhóm 1 & 3.
 - `build_graph.py`: PyG graph lũy tiến — `x`=node feat, `edge_index`+`edge_attr`=edge feat (gộp cạnh, đối xứng). Cache `.pt` (dựng 1 lần). Kèm map `node_key→idx` và `transaction→(src_idx,dst_idx)` cho readout.
+- 1 notebook duy nhất (vd analysis.ipynb) — chỉ đọc results.csv để tính mean ± std, vẽ bảng/biểu đồ cho luận văn. Không train gì trong notebook.
 
 ### Bước 5 — Nhóm 1 (classical, per-transaction) — **sàn**
 
-Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `assemble_txn`. **XGBoost tx-only = V0** (baseline "XGBoost thuần"). Trả lời: feature thủ công + cây đạt bao nhiêu, graph có hơn không.
+Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `assemble_txn`. **XGBoost tx-only = V0** (baseline "XGBoost thuần"). Trả lời: feature thủ công + cây đạt bao nhiêu, graph có hơn không. đầu ra bao gồm:
+
+- results.csv — mỗi dòng = (model, seed, split): f1_minority, precision, recall, pr_auc, recall@fpr1%, precision@1000, threshold, seed, train_time_s. Chạy 5 seed/model → notebook phân tích tính mean ± std. (metrics.py đã có log_result, chỉ cần thêm seed=, train_time_s= qua \*\*extra.)
+- Điểm dự đoán thô — lưu scores/{model}_seed{s}_{split}.npy (y_score của val + test). Có cái này thì vẽ lại PR curve, confusion matrix, đổi threshold... cho luận văn mà không phải train lại.
+- Best hyperparameters — ghi vào cột extra trong results.csv (dạng chuỗi JSON) → làm bảng phụ lục giống Altman.
+  (Nên có) train_time_s mỗi model — bằng chứng chi phí cho đóng góp 1.
+- (Tùy chọn) model XGBoost đã train (.json) + feature importance — dùng cho phần SHAP/diễn giải bước 8, và V0 tái dùng ở nhóm 3 khỏi train lại.
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
 
@@ -118,6 +125,7 @@ Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `ass
 ## 6. Độ đo & chống leakage
 
 - **Metric (chung, `metrics.py`):** minority-F1 cấp giao dịch (chính, so 63.23/68.16), PR-AUC, recall@FPR, precision@k. Threshold tune trên val. **Ghi rõ split** mọi kết quả.
+- hàm mất mát: weightes-cross entropy, focal loss
 - **Mất cân bằng (cross-cutting):** `class_weight` (LR/RF), `scale_pos_weight` (XGBoost), `pos_weight`/focal (GNN).
 - **Chống leakage:** scaler fit train-only; graph lũy tiến; bỏ `e_is_edge_mule` khi join; embedding test không dùng label test.
 
@@ -127,7 +135,7 @@ Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `ass
 
 1. Split ✅ 2. Node feature ✅ 3. Transaction feature ✅ 4. Edge feature ✅
 2. `metrics.py` chung.
-3. `assemble_txn.py` → **Nhóm 1** (`train_classical.ipynb`): sàn + V0.
+3. `assemble_txn.py` → **Nhóm 1** (`train_classical.py`): sàn + V0. notebook analysis.ipynb
 4. `build_graph.py` (cache graph).
 5. **Nhóm 2** (`train_gnn.py`): screen → tune → chọn encoder.
 6. Xuất embedding (+ điểm mule optional).
@@ -155,4 +163,4 @@ Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `ass
 - **BWGNN/evolveGCN optional:** không khớp harness chung (spectral full-batch / cần snapshot ngày); evolveGCN hợp đóng góp 2 hơn.
 - **Điểm mule (V1) optional:** bật aux head thì rẻ + có V1 + diễn giải; bỏ thì ablation gọn V0→V2.
 - **Edge feature nhãn khác cấp:** `e_is_edge_mule` là nhãn cạnh-gộp, chỉ join làm feature (đã bỏ khi train), không dùng làm mục tiêu eval.
-- **Vấn đề mở:** label leakage nhẹ (nhãn node global timeline — v1 chấp nhận); tie-breaking split khi tái dùng cho LI-Small cần kiểm edge case; bug nhỏ `day_of_week` trong `feature_transaction.py` (sin bị cos đè).
+- **Vấn đề mở:** label leakage nhẹ (nhãn node global timeline — v1 chấp nhận); tie-breaking split khi tái dùng cho LI-Small cần kiểm edge case;

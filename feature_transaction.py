@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 SRC = "dataset_high/HI-Small_Trans_split_index.csv"
 OUT = "dataset_high/transaction_features"
 
-SCALE_COLS = ["amt_paid_log", "amt_recv_log", "amt_ratio_log"]
+SCALE_COLS = ["amt_paid_log"]
 
 def load_data():
     dt = {"From Bank": str, "Account": str, "To Bank": str, "Account.1": str, "split": str}
@@ -18,13 +18,7 @@ def load_data():
 
 def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=df.index)
-
     out["amt_paid_log"] = np.log1p(df["Amount Paid"])
-    out["amt_recv_log"] = np.log1p(df["Amount Received"])
-    ratio = df["Amount Received"] / (df["Amount Paid"] + 1e-8)
-    out["amt_ratio_log"] = np.log1p(ratio)
-
-    # --- Cơ nghiệp vụ ---
     out["is_cross_bank"]     = (df["From Bank"] != df["To Bank"]).astype("int8")
     out["is_cross_currency"] = (df["Receiving Currency"] != df["Payment Currency"]).astype("int8")
     out["is_round_1000"]     = (df["Amount Paid"] % 1000 == 0).astype("int8")
@@ -36,8 +30,8 @@ def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     out["hour_sin"] = np.sin(2*np.pi*hour/24)
     out["hour_cos"] = np.cos(2*np.pi*hour/24)
     day_of_week = df["Timestamp"].dt.dayofweek.astype("int16")
-    out["day_of_week"] = np.sin(2*np.pi*day_of_week/7)
-    out["day_of_week"] = np.cos(2*np.pi*day_of_week/7)
+    out["dow_sin"] = np.sin(2*np.pi*day_of_week/7)
+    out["dow_cos"] = np.cos(2*np.pi*day_of_week/7)
 
     # --- One-hot (Tối ưu RAM bằng cách ép dtype ngay từ đầu) ---
     pf  = pd.get_dummies(df["Payment Format"],   prefix="pf", dtype="int8")
