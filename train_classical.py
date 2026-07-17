@@ -55,13 +55,11 @@ def build_model(name, seed, pos_weight, cfg=None):
     if name == "mlp":
         return MLPClassifier(**p, random_state=seed)
 
-
 def fit(model, name, Xtr, y_train, Xv, y_val):
     if name == "xgb":
-        model.fit(Xtr, y_train, eval_set=[(Xv, y_val)], verbose=False)
+        model.fit(Xtr, y_train, eval_set=[(Xv, y_val)])
     else:
         model.fit(Xtr, y_train)
-
 
 def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
     best, best_f1 = None, -1

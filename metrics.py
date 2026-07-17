@@ -13,6 +13,11 @@ from sklearn.metrics import (
 
 RESULTS_PATH = "results.csv"
 
+COLUMNS = ["model", "split", "time", "f1_minority", "precision", "recall",
+           "pr_auc", "recall@fpr1%", "precision@1000", "threshold",
+           "n", "n_pos", "seed", "train_time_s", "stage", "params"]
+
+
 
 def find_best_threshold(y_true, y_score):
     """Threshold cho minority-F1 lon nhat (tune tren val)."""
@@ -60,11 +65,8 @@ def evaluate_val_test(y_val, s_val, y_test, s_test):
 
 
 def log_result(model, split, metrics, path=RESULTS_PATH, **extra):
-    """Append 1 dong vao results.csv. Ghi ro split (plan.md muc 6)."""
     row = {"model": model, "split": split,
            "time": pd.Timestamp.now().isoformat(timespec="seconds"),
            **metrics, **extra}
-    df = pd.DataFrame([row])
+    df = pd.DataFrame([row]).reindex(columns=COLUMNS)
     df.to_csv(path, mode="a", index=False, header=not os.path.exists(path))
-    print(f"[{model} | {split}] f1_minority={metrics['f1_minority']:.4f} "
-          f"pr_auc={metrics['pr_auc']:.4f} thr={metrics['threshold']:.4f}")

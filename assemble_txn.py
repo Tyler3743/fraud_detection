@@ -1,10 +1,4 @@
-"""Ghep ma tran per-transaction cho nhom 1 & 3 (plan.md buoc 4).
 
-Moi giao dich = [tx feat] + [node feat src_] + [node feat dest_] + [edge feat e_].
-Cua so luy tien: giao dich split=train join feature *_train, val -> *_val, test -> *_test.
-Chong leakage: BO 'is_mule' (node) va 'is_edge_mule' (edge) — suy tu nhan.
-Output: dataset_high/txn_matrix_{train,val,test}.parquet (float32, kem 'Is Laundering').
-"""
 import pandas as pd
 
 DATA_DIR = "dataset_high"
@@ -14,9 +8,6 @@ LEAK_COLS_EDGE = ["is_edge_mule"]
 
 
 def normalize_key(keys):
-    """node_features_*.csv sinh tu ban script cu co zero-pad ma bank
-    ('03209 | ...') trong khi transaction dung '3209 | ...'.
-    Strip leading zero phan bank de key khop (da verify match 100%)."""
     parts = keys.str.split(" | ", regex=False)
     bank = parts.str[0].str.lstrip("0").replace("", "0")
     return bank + " | " + parts.str[1]
