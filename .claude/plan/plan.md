@@ -101,7 +101,7 @@ Khóa `(Bank, Account)`: gửi `(From Bank, Account)`, nhận `(To Bank, Account
 
 Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `assemble_txn`. **XGBoost tx-only = V0** (baseline "XGBoost thuần"). Trả lời: feature thủ công + cây đạt bao nhiêu, graph có hơn không. đầu ra bao gồm:
 
-- results.csv — mỗi dòng = (model, seed, split): f1_minority, precision, recall, pr_auc, recall@fpr1%, precision@1000, threshold, seed, train_time_s. Chạy 5 seed/model → notebook phân tích tính mean ± std. (metrics.py đã có log_result, chỉ cần thêm seed=, train_time_s= qua \*\*extra.)
+- results.csv — mỗi dòng = (model, seed, split): f1_minority, precision, recall, pr_auc, recall@fpr1%, precision@1000, threshold, seed, train_time_s. Chạy 5 seed/model → notebook phân tích tính mean ± std. (metrics.py đã có log_result, chỉ cần thêm seed=, train_time_s= qua extra.)
 - Điểm dự đoán thô — lưu scores/{model}_seed{s}_{split}.npy (y_score của val + test). Có cái này thì vẽ lại PR curve, confusion matrix, đổi threshold... cho luận văn mà không phải train lại.
 - Best hyperparameters — ghi vào cột extra trong results.csv (dạng chuỗi JSON) → làm bảng phụ lục giống Altman.
   (Nên có) train_time_s mỗi model — bằng chứng chi phí cho đóng góp 1.
@@ -164,3 +164,4 @@ Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `ass
 - **Điểm mule (V1) optional:** bật aux head thì rẻ + có V1 + diễn giải; bỏ thì ablation gọn V0→V2.
 - **Edge feature nhãn khác cấp:** `e_is_edge_mule` là nhãn cạnh-gộp, chỉ join làm feature (đã bỏ khi train), không dùng làm mục tiêu eval.
 - **Vấn đề mở:** label leakage nhẹ (nhãn node global timeline — v1 chấp nhận); tie-breaking split khi tái dùng cho LI-Small cần kiểm edge case;
+- Temporal leakage cửa sổ (đã chốt ghi limitation): node/edge feature của test tính trên toàn cửa sổ test, gồm cả tương lai; GFP tính streaming chỉ từ quá khứ. Edge feature theo cặp (src,dest) đặc biệt "thơm" vì mô tả hành vi cặp tài khoản bao gồm chính giao dịch đang xét. Vì vậy không được claim vượt 63.23/68.16 — chỉ so nội bộ V0→V2 trên cùng feature, đúng tinh thần plan mục 9.
