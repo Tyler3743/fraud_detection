@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"C:\\\\Users\\\\LENOVO\\\\anaconda3\\\\python.exe\" -c \"import pandas; print\\(pandas.__version__\\)\")",
+      "Bash(jupyter nbconvert *)"
+    ]
+  }
+}

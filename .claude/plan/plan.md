@@ -8,12 +8,12 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 **Đề tài (tạm):** Phát hiện gian lận giao dịch tài chính kết hợp GNN và XGBoost.
 
-**Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Altman/GFP/Egressy).
+**Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Realistic synthetic money, Graph Feature Preprocessor, Provably powerful graph network, Extracting money laundering, money laundering detection with multi-GIN-những paper này đều có dạng markdown trong folder IBM AML).
 
 **Khung thực nghiệm (đã chốt): 3 nhóm model, TẤT CẢ đánh giá ở cấp giao dịch, cùng split, cùng minority-F1.** Khác nhau ở mức độ dùng đồ thị:
 
-- **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature (+ node feature 2 đầu).
-- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN, skip-GCN (BWGNN, evolveGCN optional). Encoder trên graph tài khoản gộp cạnh + head phân loại từng giao dịch (end-to-end).
+- **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky)
+- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN, skip-GCN (BWGNN, evolveGCN optional). Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end).
 - **Nhóm 3 — hybrid:** encoder nhóm 2 + **XGBoost** làm head. Đây là pipeline đề xuất (đóng góp 1).
 
 GraphSAGE chỉ là **một ứng viên**, kiến trúc có thể đổi.
@@ -30,22 +30,23 @@ D:\ct551*v2
 ├─ dataset_high/ # HI-Small
 │ ├─ HI-Small_Trans.csv # ~5.08M giao dịch, nhãn 'Is Laundering'
 │ ├─ HI-Small_accounts.csv
-│ ├─ HI-Small_Trans_split_index.csv # đã gán cột 'split' (60/20/20)
-│ ├─ node_features*{train,val,test}.csv # feature_node.py ✅
-│ ├─ edge_features\*{train,val,test}.csv # feature_edge.py ✅
-│ └─ transaction_features.parquet # feature_transaction.py ✅
+│ ├─ HI-Small_Trans_split_index.csv # cột 'split' (60/20/20) ✅
+│ ├─ transaction_features.parquet # feature_transaction.py ✅ (causal, giữ nguyên)
+│ ├─ nodefeatures.parquet # feature_node.py ➕ (as-of per transaction)
+│ ├─ edge_attr*{train,val,test}.csv # feature_edge.py ♻️ viết lại (lagged)
 ├─ dataset_small/ # LI-Small (cross-test)
-├─ AccountFraudLabel.csv # nhãn node-mule (optional aux)
-├─ nodelabel.py / temporal_split_index.py / feature_node.py
-├─ feature_edge.py / feature_transaction.py  
-├─ metrics.py (➕) độ đo chung cấp giao dịch
-├─ assemble_txn.py (➕) ghép ma trận per-transaction cho nhóm 1 & 3
-├─ build_graph.py (➕) dựng + cache PyG graph, map node→idx, tx→(src,dst)
-├─ train_classical.py (➕) nhóm 1
-├─ train_gnn.py (➕) nhóm 2 (models inline)
-├─ train_hybrid.py (➕) nhóm 3 + ablation
-├─ baseline_gfp.py (➕) GFP + XGBoost (đối thủ)
-└─ results.csv (➕ auto) log mọi run
+├─ AccountFraudLabel.csv # nhãn node-mule (optional aux V1)
+├─ nodelabel.py / temporal_split_index.py
+├─ feature_transaction.py ✅ / feature_node.py ♻️ / feature_edge.py ♻️
+├─ metrics.py ✅
+├─ assemble_txn.py ♻️ # ghép tx + as-of theo index (không join CSV)
+├─ build_graph.py ➕ # PyG graph lũy tiến + edge_attr lagged, cache .pt
+├─ train_classical.py ✅ (rerun) # nhóm 1
+├─ train_gnn.py ➕ # nhóm 2
+├─ train_hybrid.py ➕ # nhóm 3 + ablation
+├─ baseline_gfp.py ➕ # GFP + XGBoost (đối thủ)
+├─ results.csv (➕ auto) # log mọi run SAU fix leakage
+└─ results-leaky.csv # kết quả trước fix — giữ làm bảng before/after
 
 **Cột Trans.csv:** `Timestamp, From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`.
 **Leading zero:** đọc bank/account dạng **string** khi join.
@@ -64,8 +65,8 @@ D:\ct551*v2
 ## 4. Split temporal (đã chốt)
 
 - Cắt theo **index thời gian 60/20/20** (chuẩn Altman), 2 mốc t1,t2; assert no-leakage.
-- **Graph lũy tiến:** train-graph = train edges; val-graph = train+val; test-graph = all; chỉ eval trên index tương ứng.
-- Mọi feature chỉ học từ cửa sổ cho phép; scaler fit **chỉ trên train**.
+- **Graph lũy tiến (cấu trúc):** train-graph = train edges; val-graph = train+val, test-graph = all; chỉ eval trên index tương ứng. Cấu trúc được phép lũy tiến, chuẩn inductive Altman, mọi baseline chấp nhận.
+- Mọi feature phải tuân theo quy luật nhân quả (causal); scaler fit **chỉ trên train**.
 
 ---
 
@@ -73,95 +74,146 @@ D:\ct551*v2
 
 ### Bước 0 — Nhãn
 
-Nhãn = `Is Laundering` theo mỗi giao dịch (nhãn thật, so được literature). Nhãn node-mule (`AccountFraudLabel.csv`, quy tắc: account dương nếu dính ≥1 giao dịch laundering) chỉ là tùy chọn (cho ablation V1 + diễn giải).
+Nhãn = `Is Laundering` theo giao dịch. Nhãn node-mule (`AccountFraudLabel.csv`) chỉ
+tùy chọn (aux V1 + diễn giải), không bao giờ làm feature.
 
 ### Bước 1 — Danh tính node (tuple)
 
-Khóa `(Bank, Account)`: gửi `(From Bank, Account)`, nhận `(To Bank, Account.1)`. Bắt buộc vì có account trùng mã giữa bank (đã xác nhận `check_duplicate.ipynb`). Đọc string.
+Khóa `(Bank, Account)`: gửi `(From Bank, Account)`, nhận `(To Bank, Account.1)`.
+Đọc string (account trùng mã giữa bank — check_duplicate.ipynb).
 
 ### Bước 2 — Split
 
 Đã làm (mục 4).
 
-### Bước 3 — Feature engineering (3 loại, cửa sổ lũy tiến, scaler train-only)
+### Bước 3 — Feature engineering (causal, scaler train-only)
 
-- **Node feature** (`feature_node.py` ✅, ~26 cột/account): dòng tiền, `net_flow`, degree in/out, xuyên bank, currency mix, payment format, velocity, số tròn. → làm `x` cho GNN (nhóm 2,3) + join 2 đầu cho nhóm 1.
-- **Transaction feature** (`feature_transaction.py` ✅, giao dịch): amount log, cross-bank/currency, round, self-loop, giờ (sin/cos), one-hot payment format + currency. → input **chính** nhóm 1; ghép nối nhóm 2; vào XGBoost tầng 2 nhóm 3.
-- **Edge feature** (`feature_edge.py` ✅, tính feature cho từng edge): thống kê tiền/đếm, tỉ lệ cross-ccy/round, active_day. thông tin của transaction cho GNN (nhóm 2,3)
-- **KHÔNG** nhồi pattern-count kiểu GFP vào feature GNN — để GNN tự học, giữ đóng góp 1 sạch; pattern để dành baseline GFP.
-- ⚠️ **Leakage:** khi ghép dữ liệu feature vào giao dịch phải **bỏ cột `is_edge_mule`** (suy từ nhãn).
+Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (phải causal/lagged).
+
+- **Transaction feature** (`feature_transaction.py` ✅): amount log, cross-bank/currency,
+  round, self-loop, giờ/dow sin-cos, one-hot format+currency. Causal tự nhiên (chỉ mô
+  tả chính giao dịch). → input chính nhóm 1; ghép head nhóm 2; vào XGBoost nhóm 3.
+- **As-of aggregate** (`feature_node.py` ➕, cho nhóm 1 & 3): mỗi giao dịch t nhận
+  thống kê tích lũy của src / dest / cặp (src,dest) từ các giao dịch TRƯỚC t
+  (sort Timestamp → groupby + cumsum/cummax + shift(1)). Cột: count/sum/mean/std/
+  min/max amount (2 vai gửi–nhận), nunique_prior (đối tác, bank, currency — qua cờ
+  flag), tỉ lệ cross-bank/ccy/round, tỉ lệ payment format, active time, tx_per_day, cờ first_seen (cold-start fill 0). Bỏ median/skew/kurt vì GFP xác nhận O(Δ), không streaming rẻ.
+  Bỏ skew/kurtosis vì trong chế độ as-of/cold-start chúng phần lớn không định nghĩa được (cần ≥3–4 giao dịch lịch sử, cell thứ 3 trong skew_edge.ipynb đã minh chứng điều này) và moment bậc cao bất ổn số học khi tính tích lũy trong pandas — dù GFP tính được O(1) bằng central moment streaming trong C++.
+- **Edge_attr cho GNN** (`feature_edge.py` ♻️, **lagged causal**): thống kê cặp
+  (src,dest) gộp cạnh, tính từ cửa sổ TRƯỚC cửa sổ eval:
+  - train-graph ← chính cửa sổ train (không có gì trước nó — limitation, ghi §9);
+  - val-graph ← train; test-graph ← train+val;
+  - cạnh chưa xuất hiện trong cửa sổ nguồn → vector 0 + cờ `seen_before`.
+    Cột: num_tx, total/mean/std/min/max paid, cross_ccy_ratio, round_ratio,
+    is_cross_bank, is_self_loop, active_day, tx_per_day, tỉ lệ format/currency.
+    BỎ `is_edge_mule`. Định vị: chặt hơn ExSTraQt (batch whole-window) — trích làm
+    tiền lệ literature chấp nhận aggregate trên cạnh gộp.
+- **Node `x` cho GNN:** chỉ sử dụng các đặc trưng tĩnh như Bank ID và Account ID — embedding bank id(+ hằng số). KHÔNG thống kê các đặc trưng động (tương tự Egressy/FraudGT: đặc trưng dồn vào edge).
+- KHÔNG nhồi pattern-count kiểu GFP vào feature GNN — giữ đóng góp 1 sạch.
+- ⚠️ `is_mule` / `is_edge_mule`: suy từ nhãn — không bao giờ join làm feature.
 
 ### Bước 4 — Lắp dữ liệu & dựng graph
 
-- `assemble_txn.py`: mỗi giao dịch ⟵ `[transaction feat] + [node feat src] + [node feat dest] (+ edge feat cặp)`. → ma trận nhóm 1 & 3.
-- `build_graph.py`: PyG graph lũy tiến — `x`=node feat, `edge_index`+`edge_attr`=edge feat (gộp cạnh, đối xứng). Cache `.pt` (dựng 1 lần). Kèm map `node_key→idx` và `transaction→(src_idx,dst_idx)` cho readout.
-- 1 notebook duy nhất (vd analysis.ipynb) — chỉ đọc results.csv để tính mean ± std, vẽ bảng/biểu đồ cho luận văn. Không train gì trong notebook.
+- `assemble_txn.py` ♻️: ma trận = `[tx feat + as-of src + as-of dest + as-of pair]`,
+  ghép **cùng index giao dịch** (không join CSV theo split); assert NaN/hit-rate.
+- `build_graph.py` ➕: PyG graph lũy tiến — `x` = bank-id index (embedding trong model),
+  `edge_index` gộp cạnh đối xứng, `edge_attr` lagged (Bước 3). Cache `.pt`.
+  Kèm map `node_key→idx`, `transaction→(src_idx,dst_idx)` cho readout.
+- 1 notebook duy nhất (analysis.ipynb) — chỉ đọc results.csv, không train.
 
 ### Bước 5 — Nhóm 1 (classical, per-transaction) — **sàn**
 
-Chạy trước (nhanh, không graph). LR/DT/RF/XGBoost/MLP trên ma trận `assemble_txn`. **XGBoost tx-only = V0** (baseline "XGBoost thuần"). Trả lời: feature thủ công + cây đạt bao nhiêu, graph có hơn không. đầu ra bao gồm:
+LR/DT/RF/XGBoost/MLP trên ma trận assemble mới. **XGBoost = V0**. Đầu ra: results.csv
+(model, seed, split, f1_minority, precision, recall, pr_auc, recall@fpr1%,
+precision@1000, threshold, train_time_s, params JSON), scores/\*.npy, model V0 (.json)
 
-- results.csv — mỗi dòng = (model, seed, split): f1_minority, precision, recall, pr_auc, recall@fpr1%, precision@1000, threshold, seed, train_time_s. Chạy 5 seed/model → notebook phân tích tính mean ± std. (metrics.py đã có log_result, chỉ cần thêm seed=, train_time_s= qua extra.)
-- Điểm dự đoán thô — lưu scores/{model}_seed{s}_{split}.npy (y_score của val + test). Có cái này thì vẽ lại PR curve, confusion matrix, đổi threshold... cho luận văn mà không phải train lại.
-- Best hyperparameters — ghi vào cột extra trong results.csv (dạng chuỗi JSON) → làm bảng phụ lục giống Altman.
-  (Nên có) train_time_s mỗi model — bằng chứng chi phí cho đóng góp 1.
-- (Tùy chọn) model XGBoost đã train (.json) + feature importance — dùng cho phần SHAP/diễn giải bước 8, và V0 tái dùng ở nhóm 3 khỏi train lại.
+- feature importance. 5 seed/model. ⚠️ Kết quả cũ (leaky) đã rename results-leaky.csv
+  — giữ làm bảng before/after cho luận văn.
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
 
-- Encoder message passing trên graph tài khoản (2 layer, neighbor sampling `[15,10]`, batch 512, AMP). Head chấm điểm từng giao dịch: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + `pos_weight`.
-- Screen họ message-passing 1 cấu hình → tune top 1–2 → **chọn encoder tốt nhất**. (BWGNN/evolveGCN optional, không khớp harness chung.)
-- Xuất node embedding (+ điểm mule nếu bật aux head) cho nhóm 3.
+- Encoder message passing trên graph Bước 4 (2 layer, neighbor sampling [15,10],
+  batch 512, AMP). **Encoder phải nhận edge_attr**: GINE, GAT(edge_dim),
+  SAGE+edge-concat; GCN thuần = biến thể không edge_attr (đối chứng topology-only).
+- Head: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + pos_weight/focal.
+- Screen 1 cấu hình/họ → tune top 1–2 → chọn encoder tốt nhất.
+- Xuất node embedding (+ điểm mule nếu bật aux) cho nhóm 3.
 
 ### Bước 7 — Nhóm 3 (hybrid) + ablation + đối thủ
 
-- Vector giao dịch = `[tx feat] + [emb src] + [emb dest] (+ điểm mule 2 đầu)` → **XGBoost (CPU)** học `Is Laundering`.
-- **Ablation:** V0 (tx-only, từ Bước 5) → V2 (tx + embedding). V1 (+ điểm mule) optional nếu bật aux head. Delta V0→V2 = bằng chứng đóng góp 1.
-- **Đối thủ thật:** `baseline_gfp.py` — GFP (Snap ML) + XGBoost, chạy cùng máy.
-- Embedding cho giao dịch test tính theo **graph lũy tiến chuẩn Altman** (full-graph, cấm dùng label test).
+- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **XGBoost (CPU)**.
+- **Ablation:** V0 (Bước 5) → V2 (V0 + embedding). Delta V0→V2 = phần embedding đóng
+  góp THÊM trên sàn mạnh = bằng chứng đóng góp 1. V1 (+mule) optional.
+- **Đối thủ thật:** `baseline_gfp.py` — GFP (Snap ML) + XGBoost, cùng máy, cùng split.
+- Embedding test tính theo graph lũy tiến chuẩn Altman (cấm dùng label test).
 
 ---
 
 ## 6. Độ đo & chống leakage
 
-- **Metric (chung, `metrics.py`):** minority-F1 cấp giao dịch (chính, so 63.23/68.16), PR-AUC, recall@FPR, precision@k. Threshold tune trên val. **Ghi rõ split** mọi kết quả.
-- hàm mất mát: weightes-cross entropy, focal loss
-- **Mất cân bằng (cross-cutting):** `class_weight` (LR/RF), `scale_pos_weight` (XGBoost), `pos_weight`/focal (GNN).
-- **Chống leakage:** scaler fit train-only; graph lũy tiến; bỏ `e_is_edge_mule` khi join; embedding test không dùng label test.
+- **Metric (`metrics.py`):** minority-F1 cấp giao dịch (chính, so 63.23/68.16),
+  PR-AUC, recall@FPR, precision@k. Threshold tune trên val. Ghi rõ split.
+- Hàm mất mát: weighted cross-entropy, focal loss.
+- **Mất cân bằng:** class_weight (LR/RF), scale_pos_weight (XGBoost), pos_weight/focal (GNN).
+- **Chống leakage (đã chốt):**
+  - Feature số nhóm 1/3: as-of per transaction — không thống kê nào thấy t' ≥ t.
+  - edge_attr GNN: lagged theo cửa sổ (val←train, test←train+val).
+  - Cấu trúc graph: lũy tiến chuẩn Altman (được phép).
+  - Scaler fit train-only; embedding test không dùng label test;
+    is_mule/is_edge_mule không làm feature.
 
 ---
 
 ## 7. Thứ tự công việc
 
-1. Split ✅ 2. Node feature ✅ 3. Transaction feature ✅ 4. Edge feature ✅
-2. `metrics.py` chung.
-3. `assemble_txn.py` → **Nhóm 1** (`train_classical.py`): sàn + V0. notebook analysis.ipynb
-4. `build_graph.py` (cache graph).
+1. Split ✅ 2. Transaction feature ✅ 3. metrics.py ✅
+2. `feature_asof.py` ➕ → verify: (a) tx đầu tiên của account có aggregate=0,
+   seen_before=0; (b) count as-of cuối cùng của account == count whole-window;
+   (c) spot-check 1 tx test: tính tay từ dữ liệu < t, so khớp.
+3. `assemble_txn.py` ♻️ → **Nhóm 1 rerun** (`train_classical.py`) → so bảng leaky/sạch.
+4. `feature_edge.py` ♻️ (lagged) + `build_graph.py` → verify: edge_attr val không đổi
+   khi xáo dữ liệu val (chỉ phụ thuộc train).
 5. **Nhóm 2** (`train_gnn.py`): screen → tune → chọn encoder.
-6. Xuất embedding (+ điểm mule optional).
+6. Xuất embedding (+ mule optional).
 7. **Nhóm 3** (`train_hybrid.py`): XGBoost + ablation V0/V2 + `baseline_gfp.py`.
-8. Chọn pipeline tốt nhất; (optional) grouped SHAP minh họa.
-9. (Sau) cross-test HI→LI; rồi mới sang đóng góp 2 (real-time).
+8. Chọn pipeline tốt nhất; (optional) grouped SHAP.
+9. (Sau) cross-test HI→LI; rồi đóng góp 2 (real-time).
 
 ---
 
 ## 8. Định vị khoa học & đóng góp
 
-**Baseline HI-Small (minority-F1, đã xác minh):** GIN 28.70 · GIN+EU 47.73 · PNA 56.77 · GFP+LightGBM 62.86 · GFP+XGBoost **63.23** · Multi-PNA+EU **68.16** (Egressy, mốc trên).
+**Baseline HI-Small (minority-F1, đã xác minh):** GIN 28.70 · GIN+EU 47.73 · PNA 56.77
+· GFP+LightGBM 62.86 · GFP+XGBoost **63.23** · Multi-PNA+EU **68.16** (Egressy, mốc trên).
 
-**Đóng góp 1 (chính):** encoder GNN nhẹ (cấp tài khoản, ~515K node) + XGBoost đạt bao nhiêu % hiệu năng của GNN edge-level nặng (~5M cạnh, Egressy) với chi phí thấp hơn bao nhiêu? Bằng chứng = **ablation V0→V2** trên split-index. Đối thủ chạy lại được: GFP+XGBoost; mốc citation: Egressy 68.16.
+Bài đo được baseline khác (folder IBM AML): Realistic Synthetic (Altman), **ExSTraQt**
+(Extracting Money Laundering — gộp cạnh, batch whole-window aggregate → tiền lệ cho
+edge_attr trên cạnh gộp; phương án của ta lagged, chặt hơn), Graph Feature
+Preprocessor, MAGIC, Finding Money Launderers (Jensen).
 
-**Đóng góp 2 (làm sau, đo systems):** phát hiện real-time 2 đường (đường nóng XGBoost/CPU đạt SLA p99; đường nguội GNN inductive refresh embedding/GPU) — trục đo latency/throughput + đường cong staleness. Làm chắc đóng góp 1 trước.
+**Đóng góp 1 (chính):** encoder GNN nhẹ (cấp tài khoản) + XGBoost đạt bao nhiêu %
+hiệu năng GNN edge-level nặng (Egressy) với chi phí thấp hơn bao nhiêu? Bằng chứng =
+ablation V0→V2, feature causal cả hai phía. Đối thủ chạy lại: GFP+XGBoost (cùng ngữ
+nghĩa causal streaming → head-to-head hợp lệ); mốc citation: Egressy 68.16.
+
+**Đóng góp 2 (sau, systems):** real-time 2 đường (nóng XGBoost/CPU, nguội GNN refresh
+embedding/GPU) — latency/throughput + staleness. Làm chắc đóng góp 1 trước.
 
 ---
 
 ## 9. Trade-off & vấn đề mở
 
-- **Gộp cạnh + readout per-tx** (nhẹ, hợp 4GB) vs **multigraph mỗi giao dịch = 1 cạnh** (đúng Egressy, nặng): chọn gộp cạnh → số GNN nhóm 2 **không phải reproduce GIN 28.7 của Altman** mà là phương pháp đề xuất; muốn baseline GNN so cứng thì chỉ trích số công bố.
-- **Nhóm 2 end-to-end trên 5M nhãn cạnh** là phần tốn compute nhất — nút thắt thời gian.
-- **Screen nhanh rồi tune top 1–2** thay vì HPO đủ 12+ model: tiết kiệm mạnh, đổi lại có thể bỏ sót model thắng nếu tune kỹ.
-- **BWGNN/evolveGCN optional:** không khớp harness chung (spectral full-batch / cần snapshot ngày); evolveGCN hợp đóng góp 2 hơn.
-- **Điểm mule (V1) optional:** bật aux head thì rẻ + có V1 + diễn giải; bỏ thì ablation gọn V0→V2.
-- **Edge feature nhãn khác cấp:** `e_is_edge_mule` là nhãn cạnh-gộp, chỉ join làm feature (đã bỏ khi train), không dùng làm mục tiêu eval.
-- **Vấn đề mở:** label leakage nhẹ (nhãn node global timeline — v1 chấp nhận); tie-breaking split khi tái dùng cho LI-Small cần kiểm edge case;
-- Temporal leakage cửa sổ (đã chốt ghi limitation): node/edge feature của test tính trên toàn cửa sổ test, gồm cả tương lai; GFP tính streaming chỉ từ quá khứ. Edge feature theo cặp (src,dest) đặc biệt "thơm" vì mô tả hành vi cặp tài khoản bao gồm chính giao dịch đang xét. Vì vậy không được claim vượt 63.23/68.16 — chỉ so nội bộ V0→V2 trên cùng feature, đúng tinh thần plan mục 9.
+- **Temporal leakage ĐÃ xử lý (v2):** as-of feature (nhóm 1/3) + edge_attr lagged (GNN).
+  results-leaky.csv giữ làm bằng chứng before/after.
+- **Limitation phải khai:** (a) edge_attr train-graph dùng chính cửa sổ train (không có
+  dữ liệu trước) → mismatch ngữ nghĩa train/test — cùng tinh thần ExSTraQt batch;
+  (b) cold-start: cạnh/account mới trong test có aggregate=0 — đúng vùng fraud hay nằm,
+  cờ seen_before giúp model học điều này.
+- **Gộp cạnh + readout per-tx** vs multigraph Egressy: nhóm 2 KHÔNG reproduce GIN 28.7
+  — là phương pháp đề xuất; baseline GNN so cứng thì trích số công bố.
+- **Nhóm 2 end-to-end 5M nhãn** = nút thắt compute.
+- **Screen rồi tune top 1–2** — có thể bỏ sót model thắng.
+- **BWGNN/evolveGCN optional** (không khớp harness; evolveGCN hợp đóng góp 2).
+- **Điểm mule (V1) optional**; `e_is_edge_mule` không bao giờ làm feature.
+- **Vấn đề mở:** nhãn node-mule dòng thời gian toàn cục (chỉ dự phòng, v1 chấp nhận); tie-breaking
+  split khi tái dùng LI-Small cần kiểm edge case.

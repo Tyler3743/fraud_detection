@@ -1,150 +1,116 @@
+import pandas as pd
+import numpy as np
 import os
-import pandas as pd, numpy as np
 from sklearn.preprocessing import StandardScaler
 
-# Cột cần log1p — đề xuất từ scaler.ipynb (skew_raw > 1 và min >= 0).
-# net_flow có giá trị âm -> KHÔNG log1p; 3 cột *_ratio đã nằm [0,1] -> bỏ qua.
-LOG1P_COLS = [
-    "num_send", "out_degree", "tx_per_day", "std_send", "mean_send", "tong_gui",
-    "tong_nhan", "std_receive", "mean_receive", "num_bank_out", "num_bank_in",
-    "in_degree", "num_receive", "active_day","max_send","min_send","max_receive","min_receive","median_send","median_receive"
-]
+src="dataset_high/HI-Small_Trans_split_index.csv"
+out="dataset_high/node_edge_features"
 
 def load_data():
-    df=pd.read_csv("dataset_high/HI-Small_Trans_split_index.csv",dtype={"From Bank":str, "Account":str, "To Bank": str, "Account.1":str})
-    df["Timestamp"]=pd.to_datetime(df["Timestamp"])
-    df["src"]=df["From Bank"]+ " | "+df["Account"]
-    df["dest"]=df["To Bank"]+ " | "+df["Account.1"]
-    return df 
-def compute_feature(df_split:pd.DataFrame):
-    df_split=df_split.copy()
-    df_split["is_cross_bank"]=(df_split["From Bank"]!=df_split["To Bank"]).astype(int)
-    df_split["is_currency_change"]=(df_split["Receiving Currency"]!=df_split["Payment Currency"]).astype(int)
-    df_split["is_round_amount"]=(df_split["Amount Paid"]%1000==0).astype(int)
-    sender=df_split.groupby("src").agg(
-        tong_gui=("Amount Paid","sum"),
-        num_send=("Amount Paid","size"),
-        mean_send=("Amount Paid","mean"),
-        std_send=("Amount Paid","std"),
-        num_bank_out=("To Bank","nunique"),
-        currency_mix_out=("Payment Currency","nunique"),
-        out_degree=("dest","nunique"),
-        time_min1=("Timestamp","min"),
-        time_max1=("Timestamp","max"),
-        cross_bank_ratio=("is_cross_bank","mean"),
-        cross_currency_ratio=("is_currency_change","mean"),
-        round_amount_ratio=("is_round_amount","mean"),
-        median_send = ("Amount Paid", "median"),
-        skew_send   = ("Amount Paid", "skew"),
-        kurt_send   = ("Amount Paid", lambda s: s.kurt()),
-        min_send=("Amount Paid", "min"),
-        max_send=("Amount Paid", "max")
-    )
-    receiver=df_split.groupby("dest").agg(
-        tong_nhan=("Amount Received","sum"),
-        num_receive=("Amount Received","size"),
-        mean_receive=("Amount Received","mean"),
-        std_receive=("Amount Received","std"),
-        num_bank_in=("From Bank","nunique"),
-        currency_mix_in=("Receiving Currency","nunique"),
-        in_degree=("src","nunique"),
-        time_min2=("Timestamp","min"),
-        time_max2=("Timestamp","max"),
-        median_receive = ("Amount Received", "median"),
-        skew_receive   = ("Amount Received", "skew"),
-        kurt_receive   = ("Amount Received", lambda s: s.kurt()),
-        min_receive=("Amount Received", "min"),
-        max_receive=("Amount Received", "max")
-    )
-    node_feature=sender.join(receiver, how="outer")
-    node_feature["net_flow"]=node_feature["tong_nhan"].fillna(0) - node_feature["tong_gui"].fillna(0)
-    node_feature["time_max"]=node_feature[["time_max1","time_max2"]].max(axis=1)
-    node_feature["time_min"]=node_feature[["time_min1","time_min2"]].min(axis=1)
-    node_feature["active_day"]=(node_feature["time_max"]-node_feature["time_min"]).dt.days
-    node_feature["active_day"]=node_feature["active_day"].fillna(0).clip(lower=1)
-    node_feature["tx_per_day"]=(node_feature["num_send"].fillna(0)+node_feature["num_receive"].fillna(0))/node_feature["active_day"]
-    node_feature=node_feature.fillna(0)
-    node_feature["net_flow_ratio"]=node_feature["net_flow"].abs()/(node_feature["tong_gui"]+node_feature["tong_nhan"]+np.finfo(float).eps)
-    mule_nodes=(
-        set(df_split.loc[df_split["Is Laundering"]==1,"src"])|
-        set(df_split.loc[df_split["Is Laundering"]==1,"dest"])
-    )
-    node_feature["is_mule"]=node_feature.index.isin(mule_nodes).astype(int)
-    final_cols=["tong_gui","num_send","mean_send","std_send","num_bank_out","currency_mix_out","out_degree","cross_bank_ratio","round_amount_ratio",
-                "cross_currency_ratio", "median_send", "skew_send", "kurt_send","median_receive","skew_receive","kurt_receive",
-                "tong_nhan","num_receive","mean_receive","std_receive","num_bank_in","currency_mix_in","in_degree",
-                "net_flow","active_day","tx_per_day","is_mule","net_flow_ratio","min_send","max_send","min_receive","max_receive"]
+    dt={"From Bank": str, "Account": str, "To Bank": str, "Account.1": str, "split": str}
+    df=pd.read_csv(src,dtype=dt,engine="pyarrow")
+    df["Timestamp"] = pd.to_datetime(df["Timestamp"], format="%Y/%m/%d %H:%M")
+    df["src"]=df["From Bank"]+ " | " +df["Account"]
+    df["dest"]=df["To Bank"]+ " | " +df["Account.1"]
+    df["ori_idx"]=np.arange(len(df))
+    df=df.sort_values(["Timestamp","ori_idx"], kind="mergesort").reset_index(drop=True)
+    df["time"]=df["Timestamp"].astype("int64")
+    df["is_cross_bank"]=df["From Bank"]!=df["To Bank"]
+    df["is_cross_curcy"]=df["Payment Currency"]!=df["Receiving Currency"]
+    df["is_round"]=df["Amount Paid"]%1000==0
+    return df
+
+def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_encoding,prefix,log_col_out):
+    #mean/sum/count
+    out=pd.DataFrame(index=df.index)
+    keys=[df[c] for c in group_cols]
+    g=df.groupby(group_cols,sort=False)
+    x=df[amt_col]
+    cnt=g.cumcount()
+    out[f"{prefix}cnt"]=cnt
+    sum_prior=g[amt_col].cumsum()-x
+    out[f"{prefix}sum"]=sum_prior
+    mean_prior=(sum_prior/cnt).fillna(0)
+    out[f"{prefix}mean"]=mean_prior
+    #phương sai
+    x2=x**2
+    sumsq_prior=x2.groupby(keys, sort=False).cumsum()-x2
+    meansq_prior=(sumsq_prior/cnt).fillna(0)
+    var_prior=meansq_prior-sumsq_prior**2
+    std = np.sqrt(np.maximum(var, 0.0))
+    out[f"{prefix}std"]=std_prior
+    #min/max
+    out[f"{prefix}max"]=g[amt_col].cummax().groupby(keys,sort=False).shift(1).fillna(0)
+    out[f"{prefix}min"]=g[amt_col].cummin().groupby(keys,sort=False).shift(1).fillna(0)
     
-    return node_feature[final_cols]
+    def nunique_prior(sub_col):
+        flag=(~df.duplicated(subset=group_cols+[sub_col])).astype("float32")
+        count=flag.groupby(keys,sort=False).cumsum()
+        return count-flag
+    if partner_col is not None:
+        out[f"{prefix}cnt_partner"]=nunique_prior(partner_col)
+    if bank_col is not None:
+        out[f"{prefix}cnt_bank"]=nunique_prior(bank_col)
+    if curcy_col is not None:
+        out[f"{prefix}cnt_curcy"]=nunique_prior(curcy_col)
+    for fname, fcol in [("cross_bank","is_cross_bank"),("cross_curcy","is_cross_curcy"),
+                        ("round","is_round")]:
+        prior_f=df[fcol].groupby(keys,sort=False).cumsum()-df[fcol]
+        out[f"{prefix}ratio_{fname}"]=(prior_f/cnt).fillna(0).astype("float32")
+    for col in pf_encoding.columns:
+        prior_d=pf_encoding[col].groupby(keys,sort=False).cumsum()-pf_encoding[col]
+        out[f"{prefix}ratio_{col}"]=(prior_d/cnt).fillna(0).astype("float32")
+    first_seen=df["time"].groupby(keys,sort=False).cummin()
+    active_time=((df["time"]-first_seen)/1e9).fillna(0)
+    out[f"{prefix}active_time"]=active_time
+    out[f"{prefix}tx_per_day"]=(cnt/(active_time/86400).clip(lower=1.0)).fillna(0)
+    out[f"{prefix}first_seen"]=(cnt>0).astype("int8")
+    log_col_out+=[f"{prefix}cnt",f"{prefix}sum",f"{prefix}mean",f"{prefix}std",
+                f"{prefix}max",f"{prefix}min",f"{prefix}tx_per_day",f"{prefix}active_time"]
+    for c in (partner_col,curcy_col,bank_col):
+        if c is not None:
+            suffix={partner_col:"partner",bank_col:"bank",curcy_col:"currency"}[c]
+            log_col_out.append(f"{prefix}cnt_{suffix}")
+    return out
 
-def payment_format_proportion(node_feature, df_window, format=None):
-    if format is None:
-        format = sorted(df_window["Payment Format"].unique())
-    tx= df_window[["src","dest","Payment Format"]].copy()
-    dummies=pd.get_dummies(tx["Payment Format"]).astype(float)
-    dummies=dummies.reindex(columns=format,fill_value=0)
-    out_prop = dummies.groupby(tx["src"]).mean()
-    out_prop.columns=[f"pf_{c.replace(' ','_')}_out" for c in format]
-    in_prop = dummies.groupby(tx["dest"]).mean()
-    in_prop.columns=[f"pf_{c.replace(' ','_')}_in" for c in format]
-
-    res=node_feature.join(out_prop).join(in_prop)
-    pf_cols=list(out_prop.columns)+list(in_prop.columns)
-    res[pf_cols]=res[pf_cols].fillna(0)
-    return res, format
-
-def scale_features(train_df, val_df, test_df, log1p_cols=LOG1P_COLS):
-    cols=list(train_df.columns)
-    use_log=[c for c in log1p_cols if c in cols]
-    frames = {
-        "train": train_df.copy(),
-        "val": val_df.reindex(columns=cols).copy(),
-        "test": test_df.reindex(columns=cols).copy(),
-    }
-    for f in frames.values():
-        f[use_log]=np.log1p(f[use_log])
-    scaler=StandardScaler().fit(frames["train"].values)
-    scaled={
-        k:pd.DataFrame(scaler.transform(f.values),index=f.index,columns=cols)
-        for k,f in frames.items()
-    }
-    return scaled["train"], scaled["val"], scaled["test"], scaler
-def save_feature(train_df, val_df, test_df, out_dir="dataset_high"):
-    os.makedirs(out_dir,exist_ok=True)
-    paths={}
-    for name, f in [("train",train_df),("val",val_df),("test",test_df)]:
-        p = os.path.join(out_dir, f"node_features_{name}.csv")
-        f.to_csv(p, index=True, index_label="node")
-        paths[name] = p
-    return paths
-def main():
-    df=load_data()
-    masks={
-        "train": df["split"]=="train",
-        "val": df["split"].isin(["train","val"]),
-        "test": df["split"].notna()
-    }
-    feats, labels, formats = {}, {}, None
-    for name in ["train", "val", "test"]:
-        window=df[masks[name]]
-        nf=compute_feature(window)
-        nf, formats=payment_format_proportion(nf,window,formats)
-        labels[name] = nf["is_mule"]                   # tách label ra
-        feats[name] = nf.drop(columns=["is_mule"])     # feature không chứa label
-
-    feats["train"], feats["val"], feats["test"], scaler = scale_features(
-        feats["train"], feats["val"], feats["test"]
-    )
-
-    for name in ["train", "val", "test"]:              # gắn label lại SAU scale
-        feats[name]["is_mule"] = labels[name]
-
-    save_feature(feats["train"], feats["val"], feats["test"])
-    for name in ["train", "val", "test"]:
-        f = feats[name]
-        n_mule = int(f["is_mule"].sum())
-        print(f"  {name:5s}: {len(f):>6,} nodes | {n_mule:>5,} mule ({n_mule/len(f)*100:.2f}%)")
-
-if __name__=="__main__":
-    main()
-                                     
+def build_entity_features(df):
+    pf_encoding=pd.get_dummies(df["Payment Format"],dtype="int8")
+    log_cols=[]
+    src_block=asof_block(df,["src"],"Amount Paid", partner_col="dest", bank_col="To Bank",curcy_col="Payment Currency",
+                         pf_encoding=pf_encoding,prefix="asof_src_",log_col_out=log_cols)
+    dest_block=asof_block(df,["dest"],"Amount Received", partner_col="src", bank_col="From Bank",curcy_col="Receiving Currency",
+                         pf_encoding=pf_encoding,prefix="asof_dest_",log_col_out=log_cols)
+    pair_block=asof_block(df,["src","dest"],"Amount Paid", partner_col=None, bank_col=None,curcy_col=None,
+                         pf_encoding=pf_encoding,prefix="asof_pair_",log_col_out=log_cols)
+    asof=pd.concat([src_block,dest_block,pair_block],axis=1)
+    asof["split"]=df["split"].values
+    asof["ori_idx"]=df["ori_idx"].values
+    return asof, log_cols
+def verify_asof(df, asof):
+    verify=True
+    first_row=~df.duplicated(subset=["src"],keep="first")
+    check_first=(asof.loc[first_row,"asof_src_cnt"]==0).all() and (asof.loc[first_row,"asof_src_first_seen"]==0).all()\
+                 and (asof.loc[first_row,"asof_src_sum"]==0).all()
+    print(f"{check_first} tx đầu tiên (src) {'PASS' if check_first else 'lỗi check first'}")
+    verify&=check_first
+    last_row=~df.duplicated(subset=["src"],keep="last")
+    whole_window_count=df.groupby("src")["src"].transform("size")
+    check_last=(asof.loc[last_row,"asof_src_cnt"]==whole_window_count.loc[last_row]-1).all()
+    print(f"[check_last] {'PASS' if check_last else 'lỗi check last'}")
+    verify&=check_last
+    test_rows=df.index[df["split"]=="test"]
+    idx=test_rows[len(test_rows)//2]
+    row=df.loc[idx]
+    prior_mask=(df["src"]==row["src"]) & ((df["time"]<row["time"]) | \
+                    ((df["time"]==row["time"]) & (df["ori_idx"]<row["ori_idx"])))
+    manual_cnt=int(prior_mask.sum())
+    manual_sum=df.loc[prior_mask,"Amount Paid"].sum()
+    got_cnt=asof.loc[idx,"asof_src_cnt"]
+    got_sum=asof.loc[idx,"asof_src_sum"]
+    spot_check=(manual_cnt==got_cnt) and np.isclose(manual_sum,got_sum)
+    print(f"[spot_check] spot-check index={idx}: count manual={manual_cnt} vs code={got_cnt},"\
+          f"sum manual={manual_sum:.2f} vs code={got_sum:.2f} -> {'PASS' if spot_check else 'sai'}")
+    verify&=spot_check
+    if not verify:
+        raise AssertionError("check fail sau khi kiểm tra logic")
+    print("PASS ALL")
