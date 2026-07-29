@@ -37,7 +37,7 @@ def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_enco
     sumsq_prior=x2.groupby(keys, sort=False).cumsum()-x2
     meansq_prior=(sumsq_prior/cnt).fillna(0)
     var_prior=meansq_prior-sumsq_prior**2
-    std = np.sqrt(np.maximum(var, 0.0))
+    std_prior = np.sqrt(np.maximum(var_prior, 0.0))
     out[f"{prefix}std"]=std_prior
     #min/max
     out[f"{prefix}max"]=g[amt_col].cummax().groupby(keys,sort=False).shift(1).fillna(0)
@@ -114,3 +114,25 @@ def verify_asof(df, asof):
     if not verify:
         raise AssertionError("check fail sau khi kiểm tra logic")
     print("PASS ALL")
+def scale_feature(asof,log_cols):
+    out=asof.copy()
+    out[log_cols]=np.log1p(out[log_cols].clip(lower=0))
+    is_train=out["split"]=="train"
+    scaler=StandardScaler().fit(out.loc[is_train,log_cols].values)
+    out[log_cols]=scaler.transform(out[log_cols].values)
+    return out, scaler
+
+def main():
+    df=load_data()
+    print("building as-of feature")
+    asof, log_cols=build_entity_features(df)
+    print("kiểm tra hợp lệ")
+    verify_asof(df,asof)
+    asof, scaler=scale_feature(asof,log_cols)
+    asof = asof.sort_values("ori_indx").drop(columns="ori_idx")
+    os.makedirs("dataset_high", exist_ok=True)
+    path = out+".parquet"
+    asof.to_parquet(path,index=False)
+    print(f"Success Đã lưu: {path} shape={asof.shape}")
+    if __name__=="__main__":
+        main()

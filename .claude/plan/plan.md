@@ -13,7 +13,7 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 **Khung thực nghiệm (đã chốt): 3 nhóm model, TẤT CẢ đánh giá ở cấp giao dịch, cùng split, cùng minority-F1.** Khác nhau ở mức độ dùng đồ thị:
 
 - **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky)
-- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN, skip-GCN (BWGNN, evolveGCN optional). Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end).
+- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end).
 - **Nhóm 3 — hybrid:** encoder nhóm 2 + **XGBoost** làm head. Đây là pipeline đề xuất (đóng góp 1).
 
 GraphSAGE chỉ là **một ứng viên**, kiến trúc có thể đổi.
@@ -125,15 +125,16 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
 
 LR/DT/RF/XGBoost/MLP trên ma trận assemble mới. **XGBoost = V0**. Đầu ra: results.csv
 (model, seed, split, f1_minority, precision, recall, pr_auc, recall@fpr1%,
-precision@1000, threshold, train_time_s, params JSON), scores/\*.npy, model V0 (.json)
+precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.json)
 
 - feature importance. 5 seed/model. ⚠️ Kết quả cũ (leaky) đã rename results-leaky.csv
-  — giữ làm bảng before/after cho luận văn.
+- giữ làm bảng before/after cho luận văn.
+- các bài báo có dùng node feature liên quan (trong folder md IBM AML): Anti-Money Laundering Alert Optimization, Application of Classical & Quantum-Hybrid, Privacy-Preserving Graph-Based, Amatriciana (Temporal GNN), Graph Feature Preprocessor, NETWORK ANALYTICS trong folder md IBM AML , Provably Powerful Multigraph (Egressy), fraudGT, Realistic Synthetic
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
 
 - Encoder message passing trên graph Bước 4 (2 layer, neighbor sampling [15,10],
-  batch 512, AMP). **Encoder phải nhận edge_attr**: GINE, GAT(edge_dim),
+  batch 512, AMP). **Encoder phải nhận edge_attr**: GIN, GAT(edge_dim),
   SAGE+edge-concat; GCN thuần = biến thể không edge_attr (đối chứng topology-only).
 - Head: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + pos_weight/focal.
 - Screen 1 cấu hình/họ → tune top 1–2 → chọn encoder tốt nhất.
@@ -194,7 +195,7 @@ Preprocessor, MAGIC, Finding Money Launderers (Jensen).
 **Đóng góp 1 (chính):** encoder GNN nhẹ (cấp tài khoản) + XGBoost đạt bao nhiêu %
 hiệu năng GNN edge-level nặng (Egressy) với chi phí thấp hơn bao nhiêu? Bằng chứng =
 ablation V0→V2, feature causal cả hai phía. Đối thủ chạy lại: GFP+XGBoost (cùng ngữ
-nghĩa causal streaming → head-to-head hợp lệ); mốc citation: Egressy 68.16.
+nghĩa causal streaming → head-to-head hợp lệ); mốc citation: Egressy 68.16, FraudGT 68.6.
 
 **Đóng góp 2 (sau, systems):** real-time 2 đường (nóng XGBoost/CPU, nguội GNN refresh
 embedding/GPU) — latency/throughput + staleness. Làm chắc đóng góp 1 trước.
@@ -209,10 +210,10 @@ embedding/GPU) — latency/throughput + staleness. Làm chắc đóng góp 1 tr�
   dữ liệu trước) → mismatch ngữ nghĩa train/test — cùng tinh thần ExSTraQt batch;
   (b) cold-start: cạnh/account mới trong test có aggregate=0 — đúng vùng fraud hay nằm,
   cờ seen_before giúp model học điều này.
-- **Gộp cạnh + readout per-tx** vs multigraph Egressy: nhóm 2 KHÔNG reproduce GIN 28.7
+- **Gộp cạnh + trích xuất feature per-tx** vs multigraph Egressy: nhóm 2 KHÔNG reproduce GIN 28.7
   — là phương pháp đề xuất; baseline GNN so cứng thì trích số công bố.
 - **Nhóm 2 end-to-end 5M nhãn** = nút thắt compute.
-- **Screen rồi tune top 1–2** — có thể bỏ sót model thắng.
+- **thử nghiệm các mô hình khác nhau rồi tune top 1–2** — có thể bỏ sót model thắng.
 - **BWGNN/evolveGCN optional** (không khớp harness; evolveGCN hợp đóng góp 2).
 - **Điểm mule (V1) optional**; `e_is_edge_mule` không bao giờ làm feature.
 - **Vấn đề mở:** nhãn node-mule dòng thời gian toàn cục (chỉ dự phòng, v1 chấp nhận); tie-breaking

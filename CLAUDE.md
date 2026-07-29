@@ -8,6 +8,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 không được sửa các file bạn chỉ sửa dưới dạng text trong cuộc trò chuyện
+các bài trong IBM AML paper hãy đọc các bài báo ở dạng markdown trong folder markdown
 
 ## 1. Think Before Coding
 
