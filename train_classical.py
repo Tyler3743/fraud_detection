@@ -22,14 +22,14 @@ PARAMS = {
     "rf":  {"n_estimators": 100, "max_depth": 12,
             "class_weight": "balanced", "n_jobs": -1},
     "xgb": {"n_estimators": 1000, "max_depth": 8, "learning_rate": 0.1,
-            "tree_method": "hist", "n_jobs": -1, "early_stopping_rounds": 20},
-    "mlp": {"hidden_layer_sizes": (64, 32), "max_iter": 30,
+            "tree_method": "hist", "n_jobs": -1, "early_stopping_rounds": 20,"subsample": 0.8, "colsample_bytree": 0.8},
+    "mlp": {"hidden_layer_sizes": (64, 32), "max_iter": 100,
             "early_stopping": True},
 }
 
 GRIDS = {
     "xgb": [{"max_depth": d, "learning_rate": lr, "scale_pos_weight": spw,
-             "n_estimators": 1000, "early_stopping_rounds": 20,
+             "n_estimators": 1000, "early_stopping_rounds": 20,"subsample": 0.8, "colsample_bytree": 0.8,
              "tree_method": "hist", "n_jobs": -1}
             for d in [6, 8, 10] for lr in [0.05, 0.1] for spw in [1, 10, 100]],
     "rf":  [{"n_estimators": n, "max_depth": d, "class_weight": cw, "n_jobs": -1}
@@ -55,17 +55,24 @@ def build_model(name, seed, pos_weight, cfg=None):
     if name == "mlp":
         return MLPClassifier(**p, random_state=seed)
 
-def fit(model, name, Xtr, y_train, Xv, y_val):
-    if name == "xgb":
-        model.fit(Xtr, y_train, eval_set=[(Xv, y_val)])
+ES_FRAC = 0.1  # đuôi train (theo thời gian) dành riêng cho xgb early-stopping, KHÔNG dùng val
+
+
+def fit(model, name, Xtr, y_train):
+    if name == "xgb":   
+        cut = int(len(y_train) * (1 - ES_FRAC))
+        Xfit, yfit = Xtr[:cut], y_train[:cut]
+        Xes, yes = Xtr[cut:], y_train[cut:]
+        model.fit(Xfit, yfit, eval_set=[(Xes, yes)])
     else:
         model.fit(Xtr, y_train)
+
 
 def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
     best, best_f1 = None, -1
     for cfg in tqdm(GRIDS[name], desc=f"tune {name}"):
         model = build_model(name, 0, pos_weight, cfg)  # seed 0
-        fit(model, name, Xtr, y_train, Xv, y_val)
+        fit(model, name, Xtr, y_train)  # <- bo Xv, y_val: xgb early-stopping dung duoi train, khong dung val
         s_val = model.predict_proba(Xv)[:, 1]
         m = evaluate(y_val, s_val, find_best_threshold(y_val, s_val))
         log_result(name, "val", m, seed=0, stage="tune",
@@ -73,6 +80,7 @@ def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
         if m["f1_minority"] > best_f1:
             best, best_f1 = cfg, m["f1_minority"]
     return best
+
 
 
 def load_split(split):
@@ -109,7 +117,7 @@ def main():
         for seed in tqdm(SEEDS, desc=f"{name} seeds", leave=False):
             model = build_model(name, seed, pos_weight)
             t0 = time.time()
-            fit(model, name, Xtr, y_train, Xv, y_val)
+            fit(model, name, Xtr, y_train)
             train_time_s = round(time.time() - t0, 1)
 
             s_val = model.predict_proba(Xv)[:, 1]

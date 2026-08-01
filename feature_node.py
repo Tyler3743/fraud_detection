@@ -36,7 +36,7 @@ def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_enco
     x2=x**2
     sumsq_prior=x2.groupby(keys, sort=False).cumsum()-x2
     meansq_prior=(sumsq_prior/cnt).fillna(0)
-    var_prior=meansq_prior-sumsq_prior**2
+    var_prior=meansq_prior-mean_prior**2
     std_prior = np.sqrt(np.maximum(var_prior, 0.0))
     out[f"{prefix}std"]=std_prior
     #min/max
@@ -64,12 +64,12 @@ def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_enco
     active_time=((df["time"]-first_seen)/1e9).fillna(0)
     out[f"{prefix}active_time"]=active_time
     out[f"{prefix}tx_per_day"]=(cnt/(active_time/86400).clip(lower=1.0)).fillna(0)
-    out[f"{prefix}first_seen"]=(cnt>0).astype("int8")
+    out[f"{prefix}first_seen"]=(cnt==0).astype("int8")
     log_col_out+=[f"{prefix}cnt",f"{prefix}sum",f"{prefix}mean",f"{prefix}std",
                 f"{prefix}max",f"{prefix}min",f"{prefix}tx_per_day",f"{prefix}active_time"]
     for c in (partner_col,curcy_col,bank_col):
         if c is not None:
-            suffix={partner_col:"partner",bank_col:"bank",curcy_col:"currency"}[c]
+            suffix={partner_col:"partner",bank_col:"bank",curcy_col:"curcy"}[c]
             log_col_out.append(f"{prefix}cnt_{suffix}")
     return out
 
@@ -89,7 +89,7 @@ def build_entity_features(df):
 def verify_asof(df, asof):
     verify=True
     first_row=~df.duplicated(subset=["src"],keep="first")
-    check_first=(asof.loc[first_row,"asof_src_cnt"]==0).all() and (asof.loc[first_row,"asof_src_first_seen"]==0).all()\
+    check_first=(asof.loc[first_row,"asof_src_cnt"]==0).all() and (asof.loc[first_row,"asof_src_first_seen"]== 1).all()\
                  and (asof.loc[first_row,"asof_src_sum"]==0).all()
     print(f"{check_first} tx đầu tiên (src) {'PASS' if check_first else 'lỗi check first'}")
     verify&=check_first
@@ -129,10 +129,10 @@ def main():
     print("kiểm tra hợp lệ")
     verify_asof(df,asof)
     asof, scaler=scale_feature(asof,log_cols)
-    asof = asof.sort_values("ori_indx").drop(columns="ori_idx")
+    asof = asof.sort_values("ori_idx").drop(columns="ori_idx")
     os.makedirs("dataset_high", exist_ok=True)
     path = out+".parquet"
     asof.to_parquet(path,index=False)
     print(f"Success Đã lưu: {path} shape={asof.shape}")
-    if __name__=="__main__":
-        main()
+if __name__=="__main__":
+    main()

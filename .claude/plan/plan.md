@@ -32,7 +32,7 @@ D:\ct551*v2
 │ ├─ HI-Small_accounts.csv
 │ ├─ HI-Small_Trans_split_index.csv # cột 'split' (60/20/20) ✅
 │ ├─ transaction_features.parquet # feature_transaction.py ✅ (causal, giữ nguyên)
-│ ├─ nodefeatures.parquet # feature_node.py ➕ (as-of per transaction)
+│ ├─ node_edge_features.parquet # feature_node.py ➕ (as-of per transaction)
 │ ├─ edge_attr*{train,val,test}.csv # feature_edge.py ♻️ viết lại (lagged)
 ├─ dataset_small/ # LI-Small (cross-test)
 ├─ AccountFraudLabel.csv # nhãn node-mule (optional aux V1)
@@ -64,7 +64,7 @@ D:\ct551*v2
 
 ## 4. Split temporal (đã chốt)
 
-- Cắt theo **index thời gian 60/20/20** (chuẩn Altman), 2 mốc t1,t2; assert no-leakage.
+- Cắt theo **index thời gian 60/20/20**
 - **Graph lũy tiến (cấu trúc):** train-graph = train edges; val-graph = train+val, test-graph = all; chỉ eval trên index tương ứng. Cấu trúc được phép lũy tiến, chuẩn inductive Altman, mọi baseline chấp nhận.
 - Mọi feature phải tuân theo quy luật nhân quả (causal); scaler fit **chỉ trên train**.
 
@@ -109,7 +109,7 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
     BỎ `is_edge_mule`. Định vị: chặt hơn ExSTraQt (batch whole-window) — trích làm
     tiền lệ literature chấp nhận aggregate trên cạnh gộp.
 - **Node `x` cho GNN:** chỉ sử dụng các đặc trưng tĩnh như Bank ID và Account ID — embedding bank id(+ hằng số). KHÔNG thống kê các đặc trưng động (tương tự Egressy/FraudGT: đặc trưng dồn vào edge).
-- KHÔNG nhồi pattern-count kiểu GFP vào feature GNN — giữ đóng góp 1 sạch.
+- KHÔNG cho học các mẫu pattern giống GFP vào feature GNN — giữ đóng góp 1 sạch.
 - ⚠️ `is_mule` / `is_edge_mule`: suy từ nhãn — không bao giờ join làm feature.
 
 ### Bước 4 — Lắp dữ liệu & dựng graph
@@ -168,8 +168,8 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 ## 7. Thứ tự công việc
 
 1. Split ✅ 2. Transaction feature ✅ 3. metrics.py ✅
-2. `feature_asof.py` ➕ → verify: (a) tx đầu tiên của account có aggregate=0,
-   seen_before=0; (b) count as-of cuối cùng của account == count whole-window;
+2. `feature_node.py` ➕ → verify: (a) tx đầu tiên của account có aggregate=0,
+   first_seen=0; (b) count as-of cuối cùng của account == count whole-window;
    (c) spot-check 1 tx test: tính tay từ dữ liệu < t, so khớp.
 3. `assemble_txn.py` ♻️ → **Nhóm 1 rerun** (`train_classical.py`) → so bảng leaky/sạch.
 4. `feature_edge.py` ♻️ (lagged) + `build_graph.py` → verify: edge_attr val không đổi

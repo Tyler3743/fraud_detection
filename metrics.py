@@ -1,8 +1,3 @@
-"""Do do chung cap giao dich cho ca 3 nhom model (plan.md muc 6).
-
-Metric chinh: minority-F1 (so voi moc 63.23 / 68.16).
-Phu: PR-AUC, recall@FPR, precision@k. Threshold tune tren VAL, ap sang TEST.
-"""
 import os
 import numpy as np
 import pandas as pd
@@ -20,10 +15,9 @@ COLUMNS = ["model", "split", "time", "f1_minority", "precision", "recall",
 
 
 def find_best_threshold(y_true, y_score):
-    """Threshold cho minority-F1 lon nhat (tune tren val)."""
     prec, rec, thr = precision_recall_curve(y_true, y_score)
     f1 = 2 * prec * rec / (prec + rec + 1e-12)
-    best = np.argmax(f1[:-1])  # phan tu cuoi khong co threshold tuong ung
+    best = np.argmax(f1[:-1])  
     return float(thr[best])
 
 
@@ -38,7 +32,6 @@ def precision_at_k(y_true, y_score, k=1000):
 
 
 def evaluate(y_true, y_score, threshold=0.5):
-    """Tra ve dict metric cap giao dich. y_score = xac suat/diem lop duong."""
     y_true = np.asarray(y_true)
     y_score = np.asarray(y_score)
     y_pred = (y_score >= threshold).astype(int)
