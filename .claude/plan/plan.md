@@ -6,7 +6,7 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 ## 1. Tổng quan
 
-**Đề tài (tạm):** Phát hiện gian lận giao dịch tài chính kết hợp GNN và XGBoost.
+**Đề tài (tạm):** Phát hiện gian lận giao dịch tài chính kết hợp GNN và classifier (chưa xác định)
 
 **Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Realistic synthetic money, Graph Feature Preprocessor, Provably powerful graph network, Extracting money laundering, money laundering detection with multi-GIN-những paper này đều có dạng markdown trong folder IBM AML).
 
@@ -14,7 +14,7 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 - **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky)
 - **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end).
-- **Nhóm 3 — hybrid:** encoder nhóm 2 + **XGBoost** làm head. Đây là pipeline đề xuất (đóng góp 1).
+- **Nhóm 3 — hybrid:** encoder nhóm 2 + **classifier** làm head. Đây là pipeline đề xuất (đóng góp 1).
 
 GraphSAGE chỉ là **một ứng viên**, kiến trúc có thể đổi.
 
@@ -142,7 +142,7 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 
 ### Bước 7 — Nhóm 3 (hybrid) + ablation + đối thủ
 
-- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **XGBoost (CPU)**.
+- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **classifier (CPU)**.
 - **Ablation:** V0 (Bước 5) → V2 (V0 + embedding). Delta V0→V2 = phần embedding đóng
   góp THÊM trên sàn mạnh = bằng chứng đóng góp 1. V1 (+mule) optional.
 - **Đối thủ thật:** `baseline_gfp.py` — GFP (Snap ML) + XGBoost, cùng máy, cùng split.
