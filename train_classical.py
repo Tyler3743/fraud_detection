@@ -19,33 +19,28 @@ RESULTS_PATH = "results.csv"
 SEEDS = [0, 1, 2, 3, 4]
 TUNE_SEEDS = [0, 1, 2]
 
-PARAMS = {
-    "lr":  {"max_iter": 1000, "class_weight": "balanced"},
-    "dt":  {"max_depth": 10, "class_weight": "balanced"},
-    "rf":  {"n_estimators": 100, "max_depth": 12,
-            "class_weight": "balanced", "n_jobs": -1},
-    "xgb": {"n_estimators": 1000, "max_depth": 8, "learning_rate": 0.1,
-            "tree_method": "hist", "n_jobs": -1, "early_stopping_rounds": 20,"subsample": 0.8, "colsample_bytree": 0.8},
-    "mlp": {"hidden_layer_sizes": (64, 32), "max_iter": 100,
-            "early_stopping": True},
-}
-
-# Thu tu trong moi grid = do phuc tap TANG DAN (pick_best dua vao thu tu nay)
+PARAMS = {"lr": {}, "dt": {}, "rf": {}, "xgb": {}, "mlp": {}}  
 GRIDS = {
-    "xgb": [{"max_depth": d, "learning_rate": lr, "scale_pos_weight": spw,
-             "n_estimators": 1000, "early_stopping_rounds": 20,"subsample": 0.8, "colsample_bytree": 0.8,
+    "lr":  [{"C": c, "class_weight": None, "max_iter": 1000}
+            for c in [0.01, 0.1, 1.0]],
+
+    "dt":  [{"max_depth": d, "class_weight": "balanced"}
+            for d in [12, 16, 20, 24]],
+
+    "rf":  [{"n_estimators": n, "max_depth": None, "min_samples_leaf": l,
+             "class_weight": "balanced", "n_jobs": -1}
+            for n in [100, 300] for l in [5, 1]],
+
+    "xgb": [{"max_depth": 8, "learning_rate": 0.05,
+             "scale_pos_weight": spw, "reg_lambda": lam,
+             "n_estimators": 1000, "early_stopping_rounds": 20,
+             "subsample": 0.8, "colsample_bytree": 0.8,
              "tree_method": "hist", "n_jobs": -1}
-            for d in [6, 8, 10] for lr in [0.05, 0.1] for spw in [1, 10, 100]],
-    "rf":  [{"n_estimators": n, "max_depth": d, "class_weight": cw, "n_jobs": -1}
-            for n in [100, 300] for d in [16, None]
-            for cw in ["balanced", "balanced_subsample"]],
-    "dt":  [{"max_depth": d, "class_weight": cw}
-            for d in [8, 12, 16] for cw in ["balanced", None]],
-    "lr":  [{"C": c, "class_weight": cw, "max_iter": 1000}
-            for c in [0.01, 0.1, 1.0] for cw in ["balanced", None]],
-    "mlp": [{"hidden_layer_sizes": h, "alpha": a,
-             "max_iter": 100, "early_stopping": True}
-            for h in [(64, 32), (128, 64)] for a in [1e-3, 1e-4]],
+            for lam in [10.0, 1.0] for spw in [5, 10, 20]],
+
+    "mlp": [{"hidden_layer_sizes": h, "alpha": 1e-4, "batch_size": 512,
+             "max_iter": 15, "early_stopping": False}
+            for h in [(64, 32), (128, 64)]],
 }
 
 
@@ -92,8 +87,6 @@ def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
 
 
 def pick_best(name, path=RESULTS_PATH):
-    """Doc lai stage=tune tu results.csv -> chon config theo quy tac 1-SE.
-    Thu tu duyet lay tu GRIDS (do phuc tap tang dan), khong lay tu file."""
     d = pd.read_csv(path)
     d = d[(d.model == name) & (d.stage == "tune") & (d.split == "val")]
     d = d.drop_duplicates(subset=["params", "seed"], keep="last")
