@@ -218,3 +218,4 @@ embedding/GPU) — latency/throughput + staleness. Làm chắc đóng góp 1 tr�
 - **Điểm mule (V1) optional**; `e_is_edge_mule` không bao giờ làm feature.
 - **Vấn đề mở:** nhãn node-mule dòng thời gian toàn cục (chỉ dự phòng, v1 chấp nhận); tie-breaking
   split khi tái dùng LI-Small cần kiểm edge case.
+- tôi làm grid search còn GFP (Blanuša 2024) và Altman 2023 dùng successive halving trên không gian random (x₀=1000 config cho dataset Small, η=2, r₀=0.1) so sánh kết quả phải so đủ chi phí và metrics

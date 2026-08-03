@@ -25,21 +25,21 @@ GRIDS = {
             for c in [0.01, 0.1, 1.0]],
 
     "dt":  [{"max_depth": d, "class_weight": "balanced"}
-            for d in [12, 16, 20, 24]],
+            for d in [12, 16, 20]],
 
     "rf":  [{"n_estimators": n, "max_depth": None, "min_samples_leaf": l,
              "class_weight": "balanced", "n_jobs": -1}
-            for n in [100, 300] for l in [5, 1]],
+            for n in [100, 300] for l in [20, 5, 1]],
 
     "xgb": [{"max_depth": 8, "learning_rate": 0.05,
              "scale_pos_weight": spw, "reg_lambda": lam,
              "n_estimators": 1000, "early_stopping_rounds": 20,
              "subsample": 0.8, "colsample_bytree": 0.8,
              "tree_method": "hist", "n_jobs": -1}
-            for lam in [10.0, 1.0] for spw in [5, 10, 20]],
+            for lam in [10.0, 1.0] for spw in [1,5,10]],
 
     "mlp": [{"hidden_layer_sizes": h, "alpha": 1e-4, "batch_size": 512,
-             "max_iter": 15, "early_stopping": False}
+             "max_iter": 30, "early_stopping": False}
             for h in [(64, 32), (128, 64)]],
 }
 
