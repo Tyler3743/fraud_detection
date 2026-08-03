@@ -36,7 +36,7 @@ GRIDS = {
              "n_estimators": 1000, "early_stopping_rounds": 20,
              "subsample": 0.8, "colsample_bytree": 0.8,
              "tree_method": "hist", "n_jobs": -1}
-            for lam in [10.0, 1.0] for spw in [1,5,10]],
+            for lam in [10.0, 1.0,0.1] for spw in [1,5,10]],
 
     "mlp": [{"hidden_layer_sizes": h, "alpha": 1e-4, "batch_size": 512,
              "max_iter": 30, "early_stopping": False}
