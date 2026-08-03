@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 from tqdm import tqdm
 import numpy as np
@@ -14,7 +15,9 @@ from xgboost import XGBClassifier
 from metrics import find_best_threshold, evaluate, log_result
 
 DATA_DIR = "dataset_high"
+RESULTS_PATH = "results.csv"
 SEEDS = [0, 1, 2, 3, 4]
+TUNE_SEEDS = [0, 1, 2]
 
 PARAMS = {
     "lr":  {"max_iter": 1000, "class_weight": "balanced"},
@@ -27,6 +30,7 @@ PARAMS = {
             "early_stopping": True},
 }
 
+# Thu tu trong moi grid = do phuc tap TANG DAN (pick_best dua vao thu tu nay)
 GRIDS = {
     "xgb": [{"max_depth": d, "learning_rate": lr, "scale_pos_weight": spw,
              "n_estimators": 1000, "early_stopping_rounds": 20,"subsample": 0.8, "colsample_bytree": 0.8,
@@ -37,6 +41,11 @@ GRIDS = {
             for cw in ["balanced", "balanced_subsample"]],
     "dt":  [{"max_depth": d, "class_weight": cw}
             for d in [8, 12, 16] for cw in ["balanced", None]],
+    "lr":  [{"C": c, "class_weight": cw, "max_iter": 1000}
+            for c in [0.01, 0.1, 1.0] for cw in ["balanced", None]],
+    "mlp": [{"hidden_layer_sizes": h, "alpha": a,
+             "max_iter": 100, "early_stopping": True}
+            for h in [(64, 32), (128, 64)] for a in [1e-3, 1e-4]],
 }
 
 
@@ -59,7 +68,7 @@ ES_FRAC = 0.1  # đuôi train (theo thời gian) dành riêng cho xgb early-stop
 
 
 def fit(model, name, Xtr, y_train):
-    if name == "xgb":   
+    if name == "xgb":
         cut = int(len(y_train) * (1 - ES_FRAC))
         Xfit, yfit = Xtr[:cut], y_train[:cut]
         Xes, yes = Xtr[cut:], y_train[cut:]
@@ -69,18 +78,36 @@ def fit(model, name, Xtr, y_train):
 
 
 def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
-    best, best_f1 = None, -1
+    """Chi ghi log stage=tune vao results.csv. KHONG chon config."""
     for cfg in tqdm(GRIDS[name], desc=f"tune {name}"):
-        model = build_model(name, 0, pos_weight, cfg)  # seed 0
-        fit(model, name, Xtr, y_train)  # <- bo Xv, y_val: xgb early-stopping dung duoi train, khong dung val
-        s_val = model.predict_proba(Xv)[:, 1]
-        m = evaluate(y_val, s_val, find_best_threshold(y_val, s_val))
-        log_result(name, "val", m, seed=0, stage="tune",
-                   params=json.dumps(cfg))
-        if m["f1_minority"] > best_f1:
-            best, best_f1 = cfg, m["f1_minority"]
-    return best
+        for seed in TUNE_SEEDS:
+            model = build_model(name, seed, pos_weight, cfg)
+            t0 = time.time()
+            fit(model, name, Xtr, y_train)
+            train_time_s = round(time.time() - t0, 1)
+            s_val = model.predict_proba(Xv)[:, 1]
+            m = evaluate(y_val, s_val, find_best_threshold(y_val, s_val))
+            log_result(name, "val", m, seed=seed, stage="tune",
+                       train_time_s=train_time_s, params=json.dumps(cfg))
 
+
+def pick_best(name, path=RESULTS_PATH):
+    """Doc lai stage=tune tu results.csv -> chon config theo quy tac 1-SE.
+    Thu tu duyet lay tu GRIDS (do phuc tap tang dan), khong lay tu file."""
+    d = pd.read_csv(path)
+    d = d[(d.model == name) & (d.stage == "tune") & (d.split == "val")]
+    d = d.drop_duplicates(subset=["params", "seed"], keep="last")
+    g = d.groupby("params").f1_minority
+
+    means, ses = [], []
+    for cfg in GRIDS[name]:
+        f1s = g.get_group(json.dumps(cfg))
+        means.append(float(f1s.mean()))
+        ses.append(float(f1s.std(ddof=1) / np.sqrt(len(f1s))))
+
+    b = int(np.argmax(means))
+    cutoff = means[b] - ses[b]
+    return GRIDS[name][next(i for i, mu in enumerate(means) if mu >= cutoff)]
 
 
 def load_split(split):
@@ -89,7 +116,7 @@ def load_split(split):
     return df.to_numpy(dtype="float32"), y, list(df.columns)
 
 
-def main():
+def main(stage):
     os.makedirs("scores", exist_ok=True)
     os.makedirs("models", exist_ok=True)
 
@@ -104,13 +131,16 @@ def main():
     scaled = {"lr", "mlp"}
     pos_weight = (y_train == 0).sum() / y_train.sum()
 
-    for name in tqdm(GRIDS, desc="tune models"):  # buoc tune: ghi de PARAMS bang best config
-        Xtr = X_train_s if name in scaled else X_train
-        Xv = X_val_s if name in scaled else X_val
-        PARAMS[name] = tune(name, Xtr, y_train, Xv, y_val, pos_weight)
-        print(f"[tune] best {name}: {PARAMS[name]}")
+    if stage == "tune":  # chi ghi log -> dung lai de chay cell kiem tra bien
+        for name in tqdm(GRIDS, desc="tune models"):
+            Xtr = X_train_s if name in scaled else X_train
+            Xv = X_val_s if name in scaled else X_val
+            tune(name, Xtr, y_train, Xv, y_val, pos_weight)
+        return
 
     for name in tqdm(PARAMS, desc="train models"):  # buoc final: 5 seed
+        PARAMS[name] = pick_best(name)
+        print(f"[final] best {name}: {PARAMS[name]}")
         Xtr = X_train_s if name in scaled else X_train
         Xv = X_val_s if name in scaled else X_val
         Xt = X_test_s if name in scaled else X_test
@@ -139,4 +169,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else "tune")

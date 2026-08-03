@@ -123,7 +123,7 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
 
 ### Bước 5 — Nhóm 1 (classical, per-transaction) — **sàn**
 
-LR/DT/RF/XGBoost/MLP trên ma trận assemble mới. **XGBoost = V0**. Đầu ra: results.csv
+LR/DT/RF/XGBoost/MLP trên ma trận assemble mới. **classifier = V0**. Đầu ra: results.csv
 (model, seed, split, f1_minority, precision, recall, pr_auc, recall@fpr1%,
 precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.json)
 
