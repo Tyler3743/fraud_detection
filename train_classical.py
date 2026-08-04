@@ -73,7 +73,6 @@ def fit(model, name, Xtr, y_train):
 
 
 def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
-    """Chi ghi log stage=tune vao results.csv. KHONG chon config."""
     for cfg in tqdm(GRIDS[name], desc=f"tune {name}"):
         for seed in TUNE_SEEDS:
             model = build_model(name, seed, pos_weight, cfg)
