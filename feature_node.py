@@ -77,11 +77,11 @@ def build_entity_features(df):
     pf_encoding=pd.get_dummies(df["Payment Format"],dtype="int8")
     log_cols=[]
     src_block=asof_block(df,["src"],"Amount Paid", partner_col="dest", bank_col="To Bank",curcy_col="Payment Currency",
-                         pf_encoding=pf_encoding,prefix="asof_src_",log_col_out=log_cols)
+                         pf_encoding=pf_encoding,prefix="src_",log_col_out=log_cols)
     dest_block=asof_block(df,["dest"],"Amount Received", partner_col="src", bank_col="From Bank",curcy_col="Receiving Currency",
-                         pf_encoding=pf_encoding,prefix="asof_dest_",log_col_out=log_cols)
+                         pf_encoding=pf_encoding,prefix="dest_",log_col_out=log_cols)
     pair_block=asof_block(df,["src","dest"],"Amount Paid", partner_col=None, bank_col=None,curcy_col=None,
-                         pf_encoding=pf_encoding,prefix="asof_pair_",log_col_out=log_cols)
+                         pf_encoding=pf_encoding,prefix="pair_",log_col_out=log_cols)
     asof=pd.concat([src_block,dest_block,pair_block],axis=1)
     asof["split"]=df["split"].values
     asof["ori_idx"]=df["ori_idx"].values
@@ -89,14 +89,14 @@ def build_entity_features(df):
 def verify_asof(df, asof):
     verify=True
     first_row=~df.duplicated(subset=["src"],keep="first")
-    check_first=(asof.loc[first_row,"asof_src_cnt"]==0).all() and (asof.loc[first_row,"asof_src_first_seen"]== 1).all()\
-                 and (asof.loc[first_row,"asof_src_sum"]==0).all()
-    print(f"{check_first} tx đầu tiên (src) {'PASS' if check_first else 'lỗi check first'}")
+    check_first=(asof.loc[first_row,"src_cnt"]==0).all() and (asof.loc[first_row,"src_first_seen"]== 1).all()\
+                 and (asof.loc[first_row,"src_sum"]==0).all()
+    print(f"kiểm tra rò rỉ dữ liệu: {check_first} {'PASS' if check_first else 'lỗi check first'}")
     verify&=check_first
     last_row=~df.duplicated(subset=["src"],keep="last")
     whole_window_count=df.groupby("src")["src"].transform("size")
-    check_last=(asof.loc[last_row,"asof_src_cnt"]==whole_window_count.loc[last_row]-1).all()
-    print(f"[check_last] {'PASS' if check_last else 'lỗi check last'}")
+    check_last=(asof.loc[last_row,"src_cnt"]==whole_window_count.loc[last_row]-1).all()
+    print(f"kiểm tra toàn vẹn: {'PASS' if check_last else 'lỗi check last'}")
     verify&=check_last
     test_rows=df.index[df["split"]=="test"]
     idx=test_rows[len(test_rows)//2]
@@ -105,11 +105,11 @@ def verify_asof(df, asof):
                     ((df["time"]==row["time"]) & (df["ori_idx"]<row["ori_idx"])))
     manual_cnt=int(prior_mask.sum())
     manual_sum=df.loc[prior_mask,"Amount Paid"].sum()
-    got_cnt=asof.loc[idx,"asof_src_cnt"]
-    got_sum=asof.loc[idx,"asof_src_sum"]
+    got_cnt=asof.loc[idx,"src_cnt"]
+    got_sum=asof.loc[idx,"src_sum"]
     spot_check=(manual_cnt==got_cnt) and np.isclose(manual_sum,got_sum)
-    print(f"[spot_check] spot-check index={idx}: count manual={manual_cnt} vs code={got_cnt},"\
-          f"sum manual={manual_sum:.2f} vs code={got_sum:.2f} -> {'PASS' if spot_check else 'sai'}")
+    print(f"kiểm tra ngẫu nhiên: index={idx}: count ={manual_cnt} vs count.1={got_cnt},"\
+          f"sum={manual_sum:.2f} vs sum.1={got_sum:.2f}")
     verify&=spot_check
     if not verify:
         raise AssertionError("check fail sau khi kiểm tra logic")
@@ -124,11 +124,9 @@ def scale_feature(asof,log_cols):
 
 def main():
     df=load_data()
-    print("building as-of feature")
     asof, log_cols=build_entity_features(df)
-    print("kiểm tra hợp lệ")
     verify_asof(df,asof)
-    asof, scaler=scale_feature(asof,log_cols)
+    asof,scaler=scale_feature(asof,log_cols)
     asof = asof.sort_values("ori_idx").drop(columns="ori_idx")
     os.makedirs("dataset_high", exist_ok=True)
     path = out+".parquet"
