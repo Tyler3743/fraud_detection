@@ -6,17 +6,17 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 ## 1. Tổng quan
 
-**Đề tài (tạm):** Phát hiện gian lận giao dịch tài chính kết hợp GNN và classifier (chưa xác định)
+**Đề tài (tạm):** Hệ thống phát hiện gian lận giao dịch tài chính thời gian thực (có thể sử dụng classifier hoặc graphsage+classfier)
 
 **Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Realistic synthetic money, Graph Feature Preprocessor, Provably powerful graph network, Extracting money laundering, money laundering detection with multi-GIN-những paper này đều có dạng markdown trong folder IBM AML).
 
 **Khung thực nghiệm (đã chốt): 3 nhóm model, TẤT CẢ đánh giá ở cấp giao dịch, cùng split, cùng minority-F1.** Khác nhau ở mức độ dùng đồ thị:
 
 - **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky)
-- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end).
+- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end). bắt buộc làm graphsage những mô hình khác chỉ tham khảo
 - **Nhóm 3 — hybrid:** encoder nhóm 2 + **classifier** làm head. Đây là pipeline đề xuất (đóng góp 1).
 
-GraphSAGE chỉ là **một ứng viên**, kiến trúc có thể đổi.
+cách làm graphsage kết hợp LSTM tương đồng mô hình amatriciana trong bài báo amatriciana.md
 
 **Dataset:** IBM AMLworld — train/eval HI-Small (`dataset_high/`), LI-Small (`dataset_small/`) để cross-test HI→LI.
 
@@ -99,6 +99,7 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
   min/max amount (2 vai gửi–nhận), nunique_prior (đối tác, bank, currency — qua cờ
   flag), tỉ lệ cross-bank/ccy/round, tỉ lệ payment format, active time, tx_per_day, cờ first_seen (cold-start fill 0). Bỏ median/skew/kurt vì GFP xác nhận O(Δ), không streaming rẻ.
   Bỏ skew/kurtosis vì trong chế độ as-of/cold-start chúng phần lớn không định nghĩa được (cần ≥3–4 giao dịch lịch sử, cell thứ 3 trong skew_edge.ipynb đã minh chứng điều này) và moment bậc cao bất ổn số học khi tính tích lũy trong pandas — dù GFP tính được O(1) bằng central moment streaming trong C++.
+- xây dựng web và hệ thống thời gian thực
 - **Edge_attr cho GNN** (`feature_edge.py` ♻️, **lagged causal**): thống kê cặp
   (src,dest) gộp cạnh, tính từ cửa sổ TRƯỚC cửa sổ eval:
   - train-graph ← chính cửa sổ train (không có gì trước nó — limitation, ghi §9);
@@ -117,9 +118,8 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
 - `assemble_txn.py` ♻️: ma trận = `[tx feat + as-of src + as-of dest + as-of pair]`,
   ghép **cùng index giao dịch** (không join CSV theo split); assert NaN/hit-rate.
 - `build_graph.py` ➕: PyG graph lũy tiến — `x` = bank-id index (embedding trong model),
-  `edge_index` gộp cạnh đối xứng, `edge_attr` lagged (Bước 3). Cache `.pt`.
-  Kèm map `node_key→idx`, `transaction→(src_idx,dst_idx)` cho readout.
-- 1 notebook duy nhất (analysis.ipynb) — chỉ đọc results.csv, không train.
+  `edge_index` gộp cạnh đối xứng, `edge_attr` lagged (Bước 3).
+- analysis_1.ipynb
 
 ### Bước 5 — Nhóm 1 (classical, per-transaction) — **sàn**
 
@@ -131,19 +131,20 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
 
+- bắt tay làm web và thời gian thực cho nhóm 1
 - Encoder message passing trên graph Bước 4 (2 layer, neighbor sampling [15,10],
   batch 512, AMP). **Encoder phải nhận edge_attr**: GIN, GAT(edge_dim),
   SAGE+edge-concat; GCN thuần = biến thể không edge_attr (đối chứng topology-only).
 - Head: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + pos_weight/focal.
 - Screen 1 cấu hình/họ → tune top 1–2 → chọn encoder tốt nhất.
 - Xuất node embedding (+ điểm mule nếu bật aux) cho nhóm 3.
+- bỏ hết chỉ làm graphsage trước mấy cái GNN khác là optional/bonus đéo quan trọng
 
 ### Bước 7 — Nhóm 3 (hybrid) + ablation + đối thủ
 
-- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **classifier (CPU)**.
+- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **classifier**.
 - **Ablation:** V0 (Bước 5) → V2 (V0 + embedding). Delta V0→V2 = phần embedding đóng
   góp THÊM trên sàn mạnh = bằng chứng đóng góp 1. V1 (+mule) optional.
-- **Đối thủ thật:** `baseline_gfp.py` — GFP (Snap ML) + XGBoost, cùng máy, cùng split.
 - Embedding test tính theo graph lũy tiến chuẩn Altman (cấm dùng label test).
 
 ---
@@ -155,9 +156,9 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 - Hàm mất mát: weighted cross-entropy, focal loss.
 - **Mất cân bằng:** class_weight (LR/RF), scale_pos_weight (XGBoost), pos_weight/focal (GNN).
 - **Chống leakage (đã chốt):**
-  - Feature số nhóm 1/3: as-of per transaction — không thống kê nào thấy t' ≥ t.
+  - Feature số nhóm 1/3: as-of per transaction — không thống kê nào thấy t' ≥ t. (phải có cell thống kê, analysis_1.ipynb làm được chưa)
   - edge_attr GNN: lagged theo cửa sổ (val←train, test←train+val).
-  - Cấu trúc graph: lũy tiến chuẩn Altman (được phép).
+  - Cấu trúc graph: lũy tiến chuẩn Altman.
   - Scaler fit train-only; embedding test không dùng label test;
     is_mule/is_edge_mule không làm feature.
 
@@ -171,12 +172,12 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
    (c) spot-check 1 tx test: tính tay từ dữ liệu < t, so khớp.
 3. `assemble_txn.py` ♻️ → **Nhóm 1 rerun** (`train_classical.py`) → so bảng leaky/sạch.
 4. `feature_edge.py` ♻️ (lagged) + `build_graph.py` → verify: edge_attr val không đổi
-   khi xáo dữ liệu val (chỉ phụ thuộc train).
+   khi xáo dữ liệu val (chỉ phụ thuộc train). chỉ nên làm graphsage thôi
 5. **Nhóm 2** (`train_gnn.py`): screen → tune → chọn encoder.
-6. Xuất embedding (+ mule optional).
-7. **Nhóm 3** (`train_hybrid.py`): XGBoost + ablation V0/V2 + `baseline_gfp.py`.
-8. Chọn pipeline tốt nhất; (optional) grouped SHAP.
-9. (Sau) cross-test HI→LI; rồi đóng góp 2 (real-time).
+6. Xuất embedding (+ mule optional). có thể bỏ chỉ làm graphsage+LSTM thôi
+7. **Nhóm 3** (`train_hybrid.py`): XGBoost + ablation V0/V2.
+8. Chọn pipeline tốt nhất; grouped SHAP.
+9. (bonus) cross-test HI→LI; rồi đóng góp 2 (real-time).
 
 ---
 
@@ -191,29 +192,25 @@ edge_attr trên cạnh gộp; phương án của ta lagged, chặt hơn), Graph 
 Preprocessor, MAGIC, Finding Money Launderers (Jensen).
 
 **Đóng góp 1 (chính):** encoder GNN nhẹ (cấp tài khoản) + XGBoost đạt bao nhiêu %
-hiệu năng GNN edge-level nặng (Egressy) với chi phí thấp hơn bao nhiêu? Bằng chứng =
-ablation V0→V2, feature causal cả hai phía. Đối thủ chạy lại: GFP+XGBoost (cùng ngữ
-nghĩa causal streaming → head-to-head hợp lệ); mốc citation: Egressy 68.16, FraudGT 68.6.
+hiệu năng GNN edge-level nặng Provably powerful graph neural network.md (Egressy) với chi phí thấp hơn bao nhiêu hoặc là chỉ làm nhóm 1 rồi so
+với các paper khác cũng được (Quasi-temporal graph.md, Graph feature preprocessor.md, Provably Network.md (Egressy), realistic synthetic.md, Amatriciana)? băng thông và tốc độ so với blazingAML
 
 **Đóng góp 2 (sau, systems):** real-time 2 đường (nóng XGBoost/CPU, nguội GNN refresh
-embedding/GPU) — latency/throughput + staleness. Làm chắc đóng góp 1 trước.
+embedding/GPU) — latency/throughput + staleness. hay chỉ cần nhóm 1 real-time thôi là đủ
+không đường nóng nguội gì hết
 
 ---
 
 ## 9. Trade-off & vấn đề mở
 
-- **Temporal leakage ĐÃ xử lý (v2):** as-of feature (nhóm 1/3) + edge_attr lagged (GNN).
-  results-leaky.csv giữ làm bằng chứng before/after.
 - **Limitation phải khai:** (a) edge_attr train-graph dùng chính cửa sổ train (không có
   dữ liệu trước) → mismatch ngữ nghĩa train/test — cùng tinh thần ExSTraQt batch;
   (b) cold-start: cạnh/account mới trong test có aggregate=0 — đúng vùng fraud hay nằm,
   cờ seen_before giúp model học điều này.
 - **Gộp cạnh + trích xuất feature per-tx** vs multigraph Egressy: nhóm 2 KHÔNG reproduce GIN 28.7
   — là phương pháp đề xuất; baseline GNN so cứng thì trích số công bố.
-- **Nhóm 2 end-to-end 5M nhãn** = nút thắt compute.
+- **Nhóm 2 end-to-end 5M nhãn** = nút thắt compute. nên có thể bỏ luôn đéo làm chỉ làm graphsage+LSTM thôi
 - **thử nghiệm các mô hình khác nhau rồi tune top 1–2** — có thể bỏ sót model thắng.
-- **BWGNN/evolveGCN optional** (không khớp harness; evolveGCN hợp đóng góp 2).
-- **Điểm mule (V1) optional**; `e_is_edge_mule` không bao giờ làm feature.
 - **Vấn đề mở:** nhãn node-mule dòng thời gian toàn cục (chỉ dự phòng, v1 chấp nhận); tie-breaking
   split khi tái dùng LI-Small cần kiểm edge case.
 - tôi làm grid search còn GFP (Blanuša 2024) và Altman 2023 dùng successive halving trên không gian random (x₀=1000 config cho dataset Small, η=2, r₀=0.1) so sánh kết quả phải so đủ chi phí và metrics

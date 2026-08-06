@@ -130,7 +130,7 @@ def main(stage):
             tune(name, Xtr, y_train, Xv, y_val, pos_weight)
         return
 
-    for name in tqdm(PARAMS, desc="train models"):  # buoc final: 5 seed
+    for name in tqdm(PARAMS, desc="train models"):  
         PARAMS[name] = pick_best(name)
         print(f"[final] best {name}: {PARAMS[name]}")
         Xtr = X_train_s if name in scaled else X_train
@@ -153,7 +153,7 @@ def main(stage):
                            seed=seed, train_time_s=train_time_s,
                            stage="final", params=json.dumps(PARAMS[name]))
 
-            if name == "xgb":  # V0 — tai dung o nhom 3 + SHAP buoc 8
+            if name == "xgb":  # V0 — tái dùng ở bước, SHAP bước 8
                 model.save_model(f"models/xgboost_seed{seed}.json")
                 imp = pd.Series(model.feature_importances_, index=feat_names)
                 imp.sort_values(ascending=False).to_csv(
