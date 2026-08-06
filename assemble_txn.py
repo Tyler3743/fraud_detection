@@ -52,7 +52,7 @@ def main():
         m   = split == s
         matrix = pd.DataFrame(X[m], columns=names)
         matrix[label] = y[m]
-        out = f"{data_dir}/txn_matrix_{s}_sexoa.parquet"
+        out = f"{data_dir}/txn_matrix_{s}.parquet"
         matrix.to_parquet(out, index=False)
         n_pos = int(matrix[label].sum())
         print(f"{s:5s}: {len(matrix):>9,} dòng | {len(names)} feature | "

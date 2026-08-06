@@ -45,7 +45,7 @@ D:\ct551*v2
 ├─ train_gnn.py ➕ # nhóm 2
 ├─ train_hybrid.py ➕ # nhóm 3 + ablation
 ├─ baseline_gfp.py ➕ # GFP + XGBoost (đối thủ)
-├─ results.csv (➕ auto) # log mọi run SAU fix leakage
+├─ results.csv chỉ giữ bản mới nhất (ghi đè không append)
 └─ results-leaky.csv # kết quả trước fix — giữ làm bảng before/after
 
 **Cột Trans.csv:** `Timestamp, From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`.
@@ -127,8 +127,6 @@ LR/DT/RF/XGBoost/MLP trên ma trận assemble mới. **classifier = V0**. Đầu
 (model, seed, split, f1_minority, precision, recall, pr_auc, recall@fpr1%,
 precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.json)
 
-- feature importance. 5 seed/model. ⚠️ Kết quả cũ (leaky) đã rename results-leaky.csv
-- giữ làm bảng before/after cho luận văn.
 - các bài báo có dùng node feature liên quan (trong folder md IBM AML): Anti-Money Laundering Alert Optimization, Application of Classical & Quantum-Hybrid, Privacy-Preserving Graph-Based, Amatriciana (Temporal GNN), Graph Feature Preprocessor, NETWORK ANALYTICS trong folder md IBM AML , Provably Powerful Multigraph (Egressy), fraudGT, Realistic Synthetic
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
