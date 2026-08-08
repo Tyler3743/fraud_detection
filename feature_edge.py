@@ -1,100 +1,121 @@
-import pandas as pd, numpy as np
-from feature_node import load_data, scale_features   # tái dùng loader + scaler đã đúng
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from feature_node import load_data      # đã sort Timestamp + tạo src/dest + cờ
 
-# Cột đếm/tiền lệch phải, không âm -> log1p. Vẫn nên profile skew bằng scaler.ipynb trước khi chốt.
 EDGE_LOG1P_COLS = [
-    "num_tx", "total_paid",
-    "mean_paid", "std_paid", "min_paid", "max_paid",
-    "active_day", "tx_per_day",
+    "num_tx", "total_paid", "mean_paid", "std_paid",
+    "min_paid", "max_paid", "active_day", "tx_per_day",
 ]
 
-def compute_edge_feature(df_window: pd.DataFrame):
-    df = df_window.copy()
-    df["is_cross_bank"]     = (df["From Bank"] != df["To Bank"]).astype(int)
-    df["is_cross_currency"] = (df["Receiving Currency"] != df["Payment Currency"]).astype(int)
-    df["is_round_amount"]   = (df["Amount Paid"] % 1000 == 0).astype(int)
-    df["is_self_loop"]      = (df["src"] == df["dest"]).astype(int)
+# name -> (cửa sổ tính FEATURE = lagged, cửa sổ định nghĩa TẬP CẠNH = lũy tiến Altman)
+WINDOWS = {
+    "train": (["train"],        ["train"]),
+    "val":   (["train"],        ["train", "val"]),
+    "test":  (["train", "val"], ["train", "val", "test"]),
+}
 
-    edge = df.groupby(["src", "dest"]).agg(
+
+def aggregate_edges(win: pd.DataFrame, formats, currencies):
+    """Thống kê cạnh gộp trên cửa sổ NGUỒN. Không đụng tới 'Is Laundering'."""
+    g = win.groupby(["src", "dest"], sort=False)
+    agg = g.agg(
         num_tx          = ("Amount Paid", "size"),
         total_paid      = ("Amount Paid", "sum"),
         mean_paid       = ("Amount Paid", "mean"),
         std_paid        = ("Amount Paid", "std"),
         min_paid        = ("Amount Paid", "min"),
         max_paid        = ("Amount Paid", "max"),
-        cross_ccy_ratio = ("is_cross_currency", "mean"),
-        round_ratio     = ("is_round_amount", "mean"),
-        is_cross_bank   = ("is_cross_bank", "max"),   # cố định trong 1 cặp
-        is_self_loop    = ("is_self_loop", "max"),
+        cross_ccy_ratio = ("is_cross_curcy", "mean"),
+        round_ratio     = ("is_round", "mean"),
         time_min        = ("Timestamp", "min"),
         time_max        = ("Timestamp", "max"),
-        is_edge_mule    = ("Is Laundering", "max"),   # nhãn cạnh gộp
     )
+    agg["std_paid"] = agg["std_paid"].fillna(0.0)          # cạnh 1-tx: ddof=1 -> NaN
+    agg["active_day"] = (agg["time_max"] - agg["time_min"]).dt.days.clip(lower=1)
+    agg["tx_per_day"] = agg["num_tx"] / agg["active_day"]
+    agg = agg.drop(columns=["time_min", "time_max"])
 
-    edge["active_day"] = (edge["time_max"] - edge["time_min"]).dt.days.clip(lower=1)
-    edge["tx_per_day"] = edge["num_tx"] / edge["active_day"]
-    edge = edge.drop(columns=["time_min", "time_max"]).fillna(0)  # std cạnh 1-tx -> 0
+    keys = [win["src"], win["dest"]]
+    for col, vocab, prefix in [("Payment Format", formats,    "pf"),
+                               ("Payment Currency", currencies, "ccy")]:
+        d = pd.get_dummies(win[col]).astype("float32").reindex(columns=vocab, fill_value=0.0)
+        prop = d.groupby(keys, sort=False).mean()
+        prop.columns = [f"{prefix}_{c.replace(' ', '_')}" for c in vocab]
+        agg = agg.join(prop)
+    return agg
 
-    final_cols = [
-        "num_tx", "total_paid",
-        "mean_paid", "std_paid", "min_paid", "max_paid",
-         "cross_ccy_ratio",
-        "round_ratio",  
-        "is_cross_bank", "is_self_loop",
-        "active_day", "tx_per_day",
-        "is_edge_mule",
-    ]
-    return edge[final_cols]
 
-def edge_payment_format_proportion(edge_feature, df_window, formats=None):
-    if formats is None:
-        formats = sorted(df_window["Payment Format"].unique())
-    dummies = pd.get_dummies(df_window["Payment Format"]).astype(float)
-    dummies = dummies.reindex(columns=formats, fill_value=0)
-    prop = dummies.groupby([df_window["src"], df_window["dest"]]).mean()
-    prop.columns = [f"pf_{c.replace(' ', '_')}" for c in formats]   # tỉ lệ [0,1] -> KHÔNG log1p
-    res = edge_feature.join(prop)
-    res[prop.columns] = res[prop.columns].fillna(0)
-    return res, formats
+def build_window(df, src_splits, graph_splits, formats, currencies):
+    src_win   = df[df["split"].isin(src_splits)]
+    graph_win = df[df["split"].isin(graph_splits)]
 
-def edge_currency_proportion(edge_feature, df_window, currencies=None,
-                             col="Payment Currency", prefix="ccy"):
-    if currencies is None:
-        currencies = sorted(df_window[col].unique())
-    dummies = pd.get_dummies(df_window[col]).astype(float)
-    dummies = dummies.reindex(columns=currencies, fill_value=0)
-    prop = dummies.groupby([df_window["src"], df_window["dest"]]).mean()
-    prop.columns = [f"{prefix}_{c.replace(' ', '_')}" for c in currencies]
-    res = edge_feature.join(prop)
-    res[prop.columns] = res[prop.columns].fillna(0)
-    return res, currencies
+    # TẬP CẠNH lấy từ cửa sổ lũy tiến. is_cross_bank / is_self_loop là hàm thuần của
+    # (src, dest) -> lấy ở đây không leak vì không đụng nội dung giao dịch.
+    edges = graph_win.groupby(["src", "dest"], sort=False).agg(
+        is_cross_bank = ("is_cross_bank", "max"),
+        is_self_loop  = ("is_self_loop",  "max"),
+    ).astype("int8")
+
+    agg = aggregate_edges(src_win, formats, currencies)
+
+    feat = edges.join(agg, how="left")                     # cạnh chưa có trong nguồn -> NaN
+    feat["seen_before"] = feat["num_tx"].notna().astype("int8")
+    return feat.fillna(0.0)
+
+
+def scale_edges(feats, log_cols):
+    """log1p + StandardScaler fit CHỈ trên bảng 'train' (tính từ cửa sổ train)."""
+    for name in feats:
+        feats[name][log_cols] = np.log1p(feats[name][log_cols].clip(lower=0))
+    scaler = StandardScaler().fit(feats["train"][log_cols].values)
+    for name in feats:
+        feats[name][log_cols] = scaler.transform(feats[name][log_cols].values)
+    return feats, scaler
+
+
+def verify(df, feats, formats, currencies):
+    # 1. không có cột nào suy từ nhãn
+    banned = {"is_edge_mule", "is_mule", "Is Laundering"}
+    for name, f in feats.items():
+        assert not (banned & set(f.columns)), f"{name} còn cột suy từ nhãn"
+
+    # 2. edge_attr val chỉ phụ thuộc train: xáo Amount Paid trong val -> bảng không đổi
+    shuffled = df.copy()
+    m = shuffled["split"] == "val"
+    rng = np.random.default_rng(0)
+    shuffled.loc[m, "Amount Paid"] = rng.permutation(shuffled.loc[m, "Amount Paid"].values)
+    ref = build_window(shuffled, *WINDOWS["val"], formats, currencies)
+    base = build_window(df, *WINDOWS["val"], formats, currencies)
+    assert ref.equals(base), "edge_attr val ĐANG phụ thuộc dữ liệu val -> leak"
+    print("  PASS: edge_attr val bất biến khi xáo dữ liệu val")
+
+    # 3. cold-start: tỉ lệ cạnh chưa từng thấy
+    for name, f in feats.items():
+        r = 1 - f["seen_before"].mean()
+        print(f"  {name:5s}: {len(f):>9,} cạnh | cold-start {r*100:5.2f}%")
+
 
 def main():
     df = load_data()
-    masks = {                                   # cửa sổ LŨY TIẾN, giống node
-        "train": df["split"] == "train",
-        "val":   df["split"].isin(["train", "val"]),
-        "test":  df["split"].notna(),
-    }
-    feats, labels, formats, currencies = {}, {}, None, None
-    for name in ["train", "val", "test"]:
-        window = df[masks[name]]
-        ef = compute_edge_feature(window)
-        ef, formats    = edge_payment_format_proportion(ef, window, formats)
-        ef, currencies = edge_currency_proportion(ef, window, currencies)   # <-- thêm dòng này
-        labels[name] = ef["is_edge_mule"]
-        feats[name]  = ef.drop(columns=["is_edge_mule"])
+    df["is_self_loop"] = (df["src"] == df["dest"]).astype("int8") 
+    # vocab chốt trên train để tập cột ổn định giữa 3 file
+    tr = df[df["split"] == "train"]
+    formats    = sorted(tr["Payment Format"].unique())
+    currencies = sorted(tr["Payment Currency"].unique())
 
-    feats["train"], feats["val"], feats["test"], scaler = scale_features(
-        feats["train"], feats["val"], feats["test"], log1p_cols=EDGE_LOG1P_COLS
-    )
-    for name in ["train", "val", "test"]:
-        feats[name]["is_edge_mule"] = labels[name]         # gắn nhãn lại SAU scale
-        p = f"dataset_high/edge_features_{name}.csv"
-        feats[name].to_csv(p, index=True, index_label=["src", "dest"])
-        n = int(feats[name]["is_edge_mule"].sum())
-        print(f"  {name:5s}: {len(feats[name]):>8,} edges | {n:>5,} mule "
-              f"({n/len(feats[name])*100:.3f}%)")
+    feats = {n: build_window(df, *w, formats, currencies) for n, w in WINDOWS.items()}
+    cols = list(feats["train"].columns)
+    feats = {n: f[cols] for n, f in feats.items()}          # khoá thứ tự cột
+
+    verify(df, feats, formats, currencies)
+    feats, _ = scale_edges(feats, EDGE_LOG1P_COLS)
+
+    for name, f in feats.items():
+        p = f"dataset_high/edge_attr_{name}.parquet"
+        f.reset_index().to_parquet(p, index=False)
+        print(f"  đã lưu {p} shape={f.shape}")
+
 
 if __name__ == "__main__":
     main()

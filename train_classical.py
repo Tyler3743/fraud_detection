@@ -21,17 +21,17 @@ TUNE_SEEDS = [0, 1, 2]
 
 PARAMS = {"lr": {}, "dt": {}, "rf": {}, "xgb": {}, "mlp": {}}  
 GRIDS = {
-    "lr":  [{"C": c, "class_weight": None, "max_iter": 1000}
+    "lr":  [{"C": c, "max_iter": 1000}
             for c in [0.01, 0.1, 1.0]],
 
     "dt":  [{"max_depth": d, "class_weight": "balanced"}
-            for d in [12, 16, 20]],
+            for d in [12, 14, 16]],
 
-    "rf":  [{"n_estimators": n, "max_depth": None, "min_samples_leaf": l,
+    "rf":  [{"n_estimators": n, "min_samples_leaf": l, #bagging
              "class_weight": "balanced", "n_jobs": -1}
             for n in [100, 300] for l in [20, 5, 1]],
 
-    "xgb": [{"max_depth": 8, "learning_rate": 0.05,
+    "xgb": [{"max_depth": 8, "learning_rate": 0.05, #boosting
              "scale_pos_weight": spw, "reg_lambda": lam,
              "n_estimators": 1000, "early_stopping_rounds": 20,
              "subsample": 0.8, "colsample_bytree": 0.8,
@@ -39,7 +39,7 @@ GRIDS = {
             for lam in [10.0, 1.0,0.1] for spw in [1,5,10]],
 
     "mlp": [{"hidden_layer_sizes": h, "alpha": 1e-4, "batch_size": 512,
-             "max_iter": 30, "early_stopping": False}
+             "max_iter": 30}
             for h in [(64, 32), (128, 64)]],
 }
 
@@ -53,7 +53,7 @@ def build_model(name, seed, pos_weight, cfg=None):
     if name == "rf":
         return RandomForestClassifier(**p, random_state=seed)
     if name == "xgb":
-        if "scale_pos_weight" not in p:  # config goc: dung full ratio
+        if "scale_pos_weight" not in p:  
             p = {**p, "scale_pos_weight": pos_weight}
         return XGBClassifier(**p, random_state=seed, eval_metric="aucpr")
     if name == "mlp":
