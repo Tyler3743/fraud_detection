@@ -8,7 +8,7 @@ from sklearn.metrics import (
 
 RESULTS_PATH = "results.csv"
 
-COLUMNS = ["model", "split", "time", "f1_minority", "precision", "recall",
+COLUMNS = ["model", "split", "time", "f1_minority", "f1@0.5","precision", "recall",
            "pr_auc", "recall@fpr1%", "precision@1000", "threshold",
            "n", "n_pos", "seed", "train_time_s", "stage", "params"]
 
@@ -37,6 +37,8 @@ def evaluate(y_true, y_score, threshold=0.5):
     y_pred = (y_score >= threshold).astype(int)
     return {
         "f1_minority": f1_score(y_true, y_pred, pos_label=1, zero_division=0),
+        "f1@0.5": f1_score(y_true, (y_score >= 0.5).astype(int),
+                           pos_label=1, zero_division=0),
         "precision": precision_score(y_true, y_pred, zero_division=0),
         "recall": recall_score(y_true, y_pred, zero_division=0),
         "pr_auc": average_precision_score(y_true, y_score),
