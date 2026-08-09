@@ -18,7 +18,8 @@ RESULTS_PATH = "results.csv"
 SEEDS = [0, 1, 2, 3, 4]
 TUNE_SEEDS = [0, 1, 2]
 
-PARAMS = {"lr": {}, "rf": {                          # cell I1/I2 -> tune_rf.csv, quy tac 1-SE
+PARAMS = {"lr": {"C": 10, "class_weight": None, "max_iter": 2000, "tol": 1e-8}, 
+    "rf": {                          # cell I1/I2 -> tune_rf.csv, quy tac 1-SE
         "n_estimators": 300,
         "min_samples_leaf": 5,     # <- dan tu cell I2
         "max_features": 0.3,         # <- dan tu cell I2
@@ -36,12 +37,29 @@ PARAMS = {"lr": {}, "rf": {                          # cell I1/I2 -> tune_rf.csv
         "early_stopping_rounds": 20,
         "tree_method": "hist",
         "n_jobs": -1,
-    },}  
-GRIDS = {
-    "lr":  [{"C": c, "class_weight": None, "max_iter": 1000, "tol": 1e-8}
-            for c in [0.1, 1.0]],
-}
-
+    },
+    "lightGBM": {
+    "num_leaves": 256,
+    "learning_rate": 0.018,
+    "n_estimators": 1000,
+    "reg_lambda": 1.0,
+    "reg_alpha": 1.8,
+    "scale_pos_weight": 835.4312267657992,
+    "max_bin": 63,
+    "n_jobs": -1,
+    "verbose": -1
+},
+    "mlp":{
+    "hidden_layer_sizes": [32],
+    "learning_rate_init": 0.003,
+    "alpha": 0.0001,
+    "batch_size": 2048,
+    "max_iter": 40,
+    "early_stopping": False,
+    "solver": "adam",
+    "activation": "relu"
+    }
+}  
 
 def build_model(name, seed, pos_weight, cfg=None):
     p = cfg if cfg is not None else PARAMS[name]
