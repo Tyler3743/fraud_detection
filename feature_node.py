@@ -17,7 +17,7 @@ def load_data():
     df["time"]=df["Timestamp"].astype("int64")
     df["is_cross_bank"]=df["From Bank"]!=df["To Bank"]
     df["is_cross_curcy"]=df["Payment Currency"]!=df["Receiving Currency"]
-    df["is_round"]=df["Amount Paid"]%1000==0
+    # df["is_round"]=df["Amount Paid"]%1000==0
     return df
 
 def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_encoding,prefix,log_col_out):
@@ -53,8 +53,7 @@ def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_enco
         out[f"{prefix}cnt_bank"]=nunique_prior(bank_col)
     if curcy_col is not None:
         out[f"{prefix}cnt_curcy"]=nunique_prior(curcy_col)
-    for fname, fcol in [("cross_bank","is_cross_bank"),("cross_curcy","is_cross_curcy"),
-                        ("round","is_round")]:
+    for fname, fcol in [("cross_bank","is_cross_bank"),("cross_curcy","is_cross_curcy")]:#xóa is_round
         prior_f=df[fcol].groupby(keys,sort=False).cumsum()-df[fcol]
         out[f"{prefix}ratio_{fname}"]=(prior_f/cnt).fillna(0).astype("float32")
     for col in pf_encoding.columns:

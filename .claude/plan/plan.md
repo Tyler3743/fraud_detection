@@ -95,7 +95,7 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
   thống kê tích lũy của src / dest / cặp (src,dest) từ các giao dịch TRƯỚC t
   (sort Timestamp → groupby + cumsum/cummax + shift(1)). Cột: count/sum/mean/std/
   min/max amount (2 vai gửi–nhận), nunique_prior (đối tác, bank, currency — qua cờ
-  flag), tỉ lệ cross-bank/ccy/round, tỉ lệ payment format, active time, tx_per_day, cờ first_seen (cold-start fill 0). Bỏ median/skew/kurt vì GFP xác nhận O(Δ), không streaming rẻ.
+  flag), tỉ lệ cross-bank/ccy/round, tỉ lệ payment format, active time, tx_per_day, cờ first_seen (cold-start fill 0). Bỏ median/skew/kurt vì GFP xác nhận O(Δ), không streaming rẻ. bỏ is_round
   Bỏ skew/kurtosis vì trong chế độ as-of/cold-start chúng phần lớn không định nghĩa được (cần ≥3–4 giao dịch lịch sử, cell thứ 3 trong skew_edge.ipynb đã minh chứng điều này) và moment bậc cao bất ổn số học khi tính tích lũy trong pandas — dù GFP tính được O(1) bằng central moment streaming trong C++.
 - **Edge_attr cho GNN** (`feature_edge.py` ♻️, **lagged causal**): thống kê cặp
   (src,dest) gộp cạnh, tính từ cửa sổ TRƯỚC cửa sổ eval:

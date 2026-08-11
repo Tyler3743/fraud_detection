@@ -27,7 +27,7 @@ def aggregate_edges(win: pd.DataFrame, formats, currencies):
         min_paid        = ("Amount Paid", "min"),
         max_paid        = ("Amount Paid", "max"),
         cross_ccy_ratio = ("is_cross_curcy", "mean"),
-        round_ratio     = ("is_round", "mean"),
+        # round_ratio     = ("is_round", "mean"),
         time_min        = ("Timestamp", "min"),
         time_max        = ("Timestamp", "max"),
     )

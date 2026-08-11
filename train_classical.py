@@ -12,10 +12,15 @@ import joblib
 import lightgbm as lgb
 from sklearn.tree import DecisionTreeClassifier
 from metrics import find_best_threshold, evaluate, log_result
+import matplotlib
+matplotlib.use("Agg")          # không cần cửa sổ đồ họa, chỉ ghi file
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
 
 DATA_DIR = "dataset_high"
 RESULTS_PATH = "results.csv"
-SEEDS = [0, 1, 2, 3, 4]
+SEEDS = [0, 1, 2, 3]
+FIG_DIR = "figures"
 
 PARAMS = {
     "rf": {                          # cell I1/I2 -> tune_rf.csv, quy tac 1-SE
@@ -109,6 +114,91 @@ def load_split(split):
     y = df.pop("Is Laundering").to_numpy()
     return df.to_numpy(dtype="float32"), y, list(df.columns)
 
+def mean_score(name, split):
+    """Trung bình điểm dự đoán qua 5 seed -> 1 vector điểm cho mỗi model."""
+    return np.mean([np.load(f"scores/{name}_seed{s}_{split}.npy") for s in SEEDS], axis=0)
+
+CM_TAGS = [["TN", "FP"], ["FN", "TP"]]
+
+
+def draw_cm(ax, cm, title, fontsize=13):
+    """Vẽ 1 ma trận 2x2: mỗi ô = nhãn TN/FP/FN/TP + số đếm + tỉ lệ theo hàng.
+
+    Tô màu theo tỉ lệ hàng (không theo số đếm), nếu không ô TP ~1.8K
+    sẽ trắng hoàn toàn so với ô TN ~1.01M.
+    """
+    cmn = cm / cm.sum(axis=1, keepdims=True)
+    ax.imshow(cmn, cmap="Blues", vmin=0.0, vmax=1.0)
+    for a in range(2):
+        for b in range(2):
+            ax.text(b, a,
+                    f"{CM_TAGS[a][b]}\n{cm[a, b]:,.0f}\n({cmn[a, b]:.4f})",
+                    ha="center", va="center", fontsize=fontsize, linespacing=1.7,
+                    color="white" if cmn[a, b] > 0.5 else "black")
+    ax.set_xticks([0, 1], ["dự đoán\nhợp lệ", "dự đoán\nrửa tiền"], fontsize=9)
+    ax.set_yticks([0, 1], ["thật\nhợp lệ", "thật\nrửa tiền"], fontsize=9)
+    ax.set_title(title, fontsize=11) 
+
+def plot_confusion_matrices(y_val, y_test, names, path=None):
+    """Hàng trên: số đếm thật. Hàng dưới: chuẩn hóa theo hàng (đường chéo = recall).
+
+    Cả hai panel tô màu theo tỉ lệ hàng, nếu tô theo số đếm thì ô TP (~1.8K)
+    sẽ trắng hoàn toàn so với ô TN (~1.01M).
+    """
+    os.makedirs(FIG_DIR, exist_ok=True)
+    path = path or f"{FIG_DIR}/confusion_matrix_test.png"
+    fig, axes = plt.subplots(2, len(names), figsize=(4.0 * len(names), 8.0))
+    axes = np.atleast_2d(axes).reshape(2, len(names))
+
+    for j, name in enumerate(names):
+        thr = find_best_threshold(y_val, mean_score(name, "val"))
+        y_pred = (mean_score(name, "test") >= thr).astype(int)
+        cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+        cmn = cm / cm.sum(axis=1, keepdims=True)
+
+        for r, (mat, fmt, tag) in enumerate([(cm, "{:,.0f}", "số đếm"),
+                                             (cmn, "{:.4f}", "chuẩn hóa theo hàng")]):
+            ax = axes[r, j]
+            ax.imshow(cmn, cmap="Blues", vmin=0.0, vmax=1.0)
+            for a in range(2):
+                for b in range(2):
+                    ax.text(b, a, fmt.format(mat[a, b]), ha="center", va="center",
+                            fontsize=10,
+                            color="white" if cmn[a, b] > 0.5 else "black")
+            ax.set_xticks([0, 1], ["dự đoán\nhợp lệ", "dự đoán\nrửa tiền"], fontsize=8)
+            ax.set_yticks([0, 1], ["thật\nhợp lệ", "thật\nrửa tiền"], fontsize=8)
+            ax.set_title(f"{name} — {tag}" + (f"\nthr={thr:.4f}" if r == 0 else ""),
+                         fontsize=10)
+        fig1, ax1 = plt.subplots(figsize=(4.6, 4.6))
+        draw_cm(ax1, cm, f"{name} — test (thr={thr:.4f})")
+        p1 = f"{FIG_DIR}/confusion_matrix_test_{name}.png"
+        fig1.savefig(p1, dpi=150, bbox_inches="tight")
+        plt.close(fig1)
+        print(f"[figure] đã lưu {p1}")
+
+    fig.suptitle("Ma trận nhầm lẫn trên tập test (điểm trung bình 5 seed, "
+                 "ngưỡng chọn trên val)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[figure] đã lưu {path}")
+
+
+def print_summary(rows):
+    """Bảng mean±std f1_minority theo model, xếp hạng theo f1 test."""
+    d = pd.DataFrame(rows)
+    piv = d.pivot_table(index="model", columns="split", values="f1",
+                        aggfunc=["mean", "std"])
+    order = piv[("mean", "test")].sort_values(ascending=False).index
+
+    print("\n" + "=" * 58)
+    print(f"{'model':<8}{'f1 val (mean±std)':>25}{'f1 test (mean±std)':>25}")
+    print("-" * 58)
+    for m in order:
+        print(f"{m:<8}"
+              f"{piv.loc[m, ('mean','val')]:>16.4f} ± {piv.loc[m, ('std','val')]:.4f}"
+              f"{piv.loc[m, ('mean','test')]:>16.4f} ± {piv.loc[m, ('std','test')]:.4f}")
+    print("=" * 58)
 
 def main():
     os.makedirs("scores", exist_ok=True)
@@ -125,12 +215,17 @@ def main():
     scaled = {"lr"}
     pos_weight = (y_train == 0).sum() / y_train.sum()
 
-    for name in tqdm(PARAMS, desc="train models"):
-        print(f"model đạt điểm cao nhất {name}: {PARAMS[name]}")
+    rows = []
+    bar = tqdm(PARAMS, desc="models", unit="model")
+    for name in bar:
+        bar.set_postfix_str(name)
+        tqdm.write(f"\n[{name}] {PARAMS[name]}")
         Xtr = X_train_s if name in scaled else X_train
         Xv = X_val_s if name in scaled else X_val
         Xt = X_test_s if name in scaled else X_test
-        for seed in tqdm(SEEDS, desc=f"{name} seeds", leave=False):
+
+        sbar = tqdm(SEEDS, desc=f"  {name} seeds", unit="seed", leave=False)
+        for seed in sbar:
             model = build_model(name, seed, pos_weight)
             t0 = time.time()
             fit(model, name, Xtr, y_train)
@@ -143,20 +238,42 @@ def main():
 
             thr = find_best_threshold(y_val, s_val)
             for split, y, s in [("val", y_val, s_val), ("test", y_test, s_test)]:
-                log_result(name, split, evaluate(y, s, thr),
-                           seed=seed, train_time_s=train_time_s,
+                m = evaluate(y, s, thr)
+                log_result(name, split, m, seed=seed, train_time_s=train_time_s,
                            stage="final", params=json.dumps(PARAMS[name]))
+                rows.append({"model": name, "split": split, "seed": seed,
+                             "f1": m["f1_minority"]})
+
+            f1v = rows[-2]["f1"]
+            f1t = rows[-1]["f1"]
+            sbar.set_postfix_str(f"f1_val={f1v:.4f} f1_test={f1t:.4f} {train_time_s}s")
+            tqdm.write(f"  seed {seed}: {train_time_s:>7.1f}s | "
+                       f"f1_val={f1v:.4f} | f1_test={f1t:.4f} | thr={thr:.4f}")
+        sbar.close()
+    bar.close()
+
+    print_summary(rows)
+    plot_confusion_matrices(y_val, y_test, list(PARAMS))
 
     best, best_f1 = pick_best_model()
-    print(f"[best] {best} (f1_test={best_f1:.4f}) -> models/")
+    print(f"\n[best] {best} (f1_test={best_f1:.4f}) -> models/")
 
     Xbest = X_train_s if best in scaled else X_train
-    for seed in tqdm(SEEDS, desc=f"save {best}"):
+    bbar = tqdm(SEEDS, desc=f"lưu {best}", unit="model")
+    for seed in bbar:
         model = build_model(best, seed, pos_weight)
+        t0 = time.time()
         fit(model, best, Xbest, y_train)
         if best == "xgb":
-            model.save_model(f"models/xgboost_seed{seed}.json")
+            out = f"models/xgboost_seed{seed}.json"
+            model.save_model(out)
         else:
-            joblib.dump(model, f"models/{best}_seed{seed}.joblib")
+            out = f"models/{best}_seed{seed}.joblib"
+            joblib.dump(model, out)
+        dt = round(time.time() - t0, 1)
+        bbar.set_postfix_str(f"seed{seed} {dt}s")
+        tqdm.write(f"  [{seed + 1}/{len(SEEDS)}] {out}  ({dt}s, "
+                   f"{os.path.getsize(out) / 1e6:.1f} MB)")
+    bbar.close()
 
 if __name__ == "__main__": main()

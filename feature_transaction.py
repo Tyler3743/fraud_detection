@@ -21,8 +21,8 @@ def build_transaction_features(df: pd.DataFrame) -> pd.DataFrame:
     out["amt_paid_log"] = np.log1p(df["Amount Paid"])
     out["is_cross_bank"]     = (df["From Bank"] != df["To Bank"]).astype("int8")
     out["is_cross_currency"] = (df["Receiving Currency"] != df["Payment Currency"]).astype("int8")
-    out["is_round_1000"]     = (df["Amount Paid"] % 1000 == 0).astype("int8")
-    out["is_round_100"]      = (df["Amount Paid"] % 100  == 0).astype("int8")
+    # out["is_round_1000"]     = (df["Amount Paid"] % 1000 == 0).astype("int8")
+    # out["is_round_100"]      = (df["Amount Paid"] % 100  == 0).astype("int8")
     out["is_self_loop"]      = (df["src"] == df["dest"]).astype("int8")
 
     # --- Thời gian ---
@@ -84,7 +84,7 @@ def main():
     rep = pd.DataFrame({"n": g.size(), "n_pos": g.sum(), "pos_%": (g.mean() * 100).round(3)})
     print(rep)
     f = pd.read_parquet("dataset_high/transaction_features.parquet")
-    print(f[f.split=="train"]["amt_paid_log"].mean())   
+    print(f"amt_paid_log sau khi fit: {f[f.split=="train"]["amt_paid_log"].mean()}")   
 
 if __name__ == "__main__":
     main()

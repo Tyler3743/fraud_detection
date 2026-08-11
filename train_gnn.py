@@ -12,7 +12,7 @@ from metrics import find_best_threshold, evaluate, log_result
 DATA = "dataset_high"
 DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEEDS = [0, 1, 2]
-HID, NEG_RATIO, EPOCHS, BATCH, LR, PATIENCE = 32, 50, 200, 32768, 3e-3, 20
+HID, NEG_RATIO, EPOCHS, BATCH, LR, PATIENCE = 32, 50, 200, 32768, 3e-3, 20 #cần tune lại
 
 
 class EdgeSAGE(MessagePassing):
