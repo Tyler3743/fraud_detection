@@ -1,6 +1,5 @@
 import json
 import os
-import sys
 import time
 from tqdm import tqdm
 import numpy as np
@@ -10,15 +9,15 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 import joblib
-
+import lightgbm as lgb
+from sklearn.tree import DecisionTreeClassifier
 from metrics import find_best_threshold, evaluate, log_result
 
 DATA_DIR = "dataset_high"
 RESULTS_PATH = "results.csv"
 SEEDS = [0, 1, 2, 3, 4]
-TUNE_SEEDS = [0, 1, 2]
 
-PARAMS = {"lr": {"C": 10, "class_weight": None, "max_iter": 2000, "tol": 1e-8}, 
+PARAMS = {
     "rf": {                          # cell I1/I2 -> tune_rf.csv, quy tac 1-SE
         "n_estimators": 300,
         "min_samples_leaf": 5,     # <- dan tu cell I2
@@ -38,26 +37,24 @@ PARAMS = {"lr": {"C": 10, "class_weight": None, "max_iter": 2000, "tol": 1e-8},
         "tree_method": "hist",
         "n_jobs": -1,
     },
-    "lightGBM": {
-    "num_leaves": 256,
-    "learning_rate": 0.018,
+    "lgb": {
+    "num_leaves": 128,
+    "learning_rate": 0.03443,
+    "reg_lambda": 44.8638,
+    "reg_alpha": 2.5893,
+    "scale_pos_weight": 2.612,
     "n_estimators": 1000,
-    "reg_lambda": 1.0,
-    "reg_alpha": 1.8,
-    "scale_pos_weight": 835.4312267657992,
     "max_bin": 63,
     "n_jobs": -1,
     "verbose": -1
 },
-    "mlp":{
-    "hidden_layer_sizes": [32],
-    "learning_rate_init": 0.003,
-    "alpha": 0.0001,
-    "batch_size": 2048,
-    "max_iter": 40,
-    "early_stopping": False,
-    "solver": "adam",
-    "activation": "relu"
+    "lr":{
+    "class_weight": None, "C":10,  "max_iter":10000, "tol":1e-8 
+    },
+    "dt":{
+    "min_samples_leaf": 25,
+    "max_depth": 24,
+    "class_weight": "balanced"
     }
 }  
 
@@ -71,50 +68,31 @@ def build_model(name, seed, pos_weight, cfg=None):
         if "scale_pos_weight" not in p:  
             p = {**p, "scale_pos_weight": pos_weight}
         return XGBClassifier(**p, random_state=seed, eval_metric="aucpr")
+    if name == "lgb":
+        if "scale_pos_weight" not in p:
+            p = {**p, "scale_pos_weight": pos_weight}
+        return lgb.LGBMClassifier(**p, random_state=seed)
+    if name == "dt":
+        return DecisionTreeClassifier(**p, random_state=seed)
+    raise ValueError(f"model không tồn tại {name!r}")
 
 ES_FRAC = 0.1  # đuôi train (theo thời gian) dành riêng cho xgb early-stopping, KHÔNG dùng val
 
 
 def fit(model, name, Xtr, y_train):
-    if name == "xgb":
+    if name in ("xgb", "lgb"):                       
         cut = int(len(y_train) * (1 - ES_FRAC))
         Xfit, yfit = Xtr[:cut], y_train[:cut]
         Xes, yes = Xtr[cut:], y_train[cut:]
-        model.fit(Xfit, yfit, eval_set=[(Xes, yes)])
+        if name == "xgb":
+            model.fit(Xfit, yfit, eval_set=[(Xes, yes)])
+        else:
+            model.fit(Xfit, yfit, eval_set=[(Xes, yes)],
+                      eval_metric="average_precision",
+                      callbacks=[lgb.early_stopping(20, first_metric_only=True, verbose=False),
+                                 lgb.log_evaluation(0)])
     else:
         model.fit(Xtr, y_train)
-
-
-def tune(name, Xtr, y_train, Xv, y_val, pos_weight):
-    for cfg in tqdm(GRIDS[name], desc=f"tune {name}"):
-        for seed in TUNE_SEEDS:
-            model = build_model(name, seed, pos_weight, cfg)
-            t0 = time.time()
-            fit(model, name, Xtr, y_train)
-            train_time_s = round(time.time() - t0, 1)
-            s_val = model.predict_proba(Xv)[:, 1]
-            m = evaluate(y_val, s_val, find_best_threshold(y_val, s_val))
-            log_result(name, "val", m, seed=seed, stage="tune",
-                       train_time_s=train_time_s, params=json.dumps(cfg))
-
-
-def pick_best(name, path=RESULTS_PATH):
-    if len(GRIDS[name]) == 1:        # xgb: params cứng từ analysis_1.ipynb, không tune
-        return GRIDS[name][0]
-    d = pd.read_csv(path)
-    d = d[(d.model == name) & (d.stage == "tune") & (d.split == "val")]
-    d = d.drop_duplicates(subset=["params", "seed"], keep="last")
-    g = d.groupby("params").f1_minority
-
-    means, ses = [], []
-    for cfg in GRIDS[name]:
-        f1s = g.get_group(json.dumps(cfg))
-        means.append(float(f1s.mean()))
-        ses.append(float(f1s.std(ddof=1) / np.sqrt(len(f1s))))
-
-    b = int(np.argmax(means))
-    cutoff = means[b] - ses[b]
-    return GRIDS[name][next(i for i, mu in enumerate(means) if mu >= cutoff)]
 
 def pick_best_model(path=RESULTS_PATH):
     d = pd.read_csv(path)
@@ -132,7 +110,7 @@ def load_split(split):
     return df.to_numpy(dtype="float32"), y, list(df.columns)
 
 
-def main(stage):
+def main():
     os.makedirs("scores", exist_ok=True)
     os.makedirs("models", exist_ok=True)
 
@@ -147,19 +125,8 @@ def main(stage):
     scaled = {"lr"}
     pos_weight = (y_train == 0).sum() / y_train.sum()
 
-    if stage in ("tune", "all"):
-        for name in tqdm(GRIDS, desc="tune models"):
-            if len(GRIDS[name]) == 1:      # params cung, khong co gi de so sanh
-                continue
-            Xtr = X_train_s if name in scaled else X_train
-            Xv = X_val_s if name in scaled else X_val
-            tune(name, Xtr, y_train, Xv, y_val, pos_weight)
-        if stage == "tune":                # dung lai de chay cell kiem tra bien
-            return
-
     for name in tqdm(PARAMS, desc="train models"):
-        PARAMS[name] = pick_best(name)
-        print(f"[final] best {name}: {PARAMS[name]}")
+        print(f"model đạt điểm cao nhất {name}: {PARAMS[name]}")
         Xtr = X_train_s if name in scaled else X_train
         Xv = X_val_s if name in scaled else X_val
         Xt = X_test_s if name in scaled else X_test
@@ -192,9 +159,4 @@ def main(stage):
         else:
             joblib.dump(model, f"models/{best}_seed{seed}.joblib")
 
-
-if __name__ == "__main__":
-    stage = sys.argv[1] if len(sys.argv) > 1 else "all"
-    assert stage in ("tune", "final", "all"), \
-        f"stage khong hop le: {stage!r} (chon: tune | final | all)"
-    main(stage)
+if __name__ == "__main__": main()

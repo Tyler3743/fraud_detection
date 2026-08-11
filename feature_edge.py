@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from feature_node import load_data      # đã sort Timestamp + tạo src/dest + cờ
+from feature_node import load_data     
 
 EDGE_LOG1P_COLS = [
     "num_tx", "total_paid", "mean_paid", "std_paid",
@@ -31,35 +31,32 @@ def aggregate_edges(win: pd.DataFrame, formats, currencies):
         time_min        = ("Timestamp", "min"),
         time_max        = ("Timestamp", "max"),
     )
-    agg["std_paid"] = agg["std_paid"].fillna(0.0)          # cạnh 1-tx: ddof=1 -> NaN
+    agg["std_paid"] = agg["std_paid"].fillna(0.0)          
     agg["active_day"] = (agg["time_max"] - agg["time_min"]).dt.days.clip(lower=1)
     agg["tx_per_day"] = agg["num_tx"] / agg["active_day"]
     agg = agg.drop(columns=["time_min", "time_max"])
 
     keys = [win["src"], win["dest"]]
-    for col, vocab, prefix in [("Payment Format", formats,    "pf"),
+    for col, names, prefix in [("Payment Format", formats,    "pf"),#vòng lặp để tính one hot
                                ("Payment Currency", currencies, "ccy")]:
-        d = pd.get_dummies(win[col]).astype("float32").reindex(columns=vocab, fill_value=0.0)
+        d = pd.get_dummies(win[col]).astype("float32").reindex(columns=names, fill_value=0.0)
         prop = d.groupby(keys, sort=False).mean()
-        prop.columns = [f"{prefix}_{c.replace(' ', '_')}" for c in vocab]
+        prop.columns = [f"{prefix}_{c.replace(' ', '_')}" for c in names]
         agg = agg.join(prop)
     return agg
 
 
 def build_window(df, src_splits, graph_splits, formats, currencies):
-    src_win   = df[df["split"].isin(src_splits)]
-    graph_win = df[df["split"].isin(graph_splits)]
-
-    # TẬP CẠNH lấy từ cửa sổ lũy tiến. is_cross_bank / is_self_loop là hàm thuần của
-    # (src, dest) -> lấy ở đây không leak vì không đụng nội dung giao dịch.
-    edges = graph_win.groupby(["src", "dest"], sort=False).agg(
+    s_window   = df[df["split"].isin(src_splits)]# thống kê đặc trưng, mô tả hành vi của cạnh
+    g_window = df[df["split"].isin(graph_splits)]# chia lũy tiến
+    edges = g_window.groupby(["src", "dest"], sort=False).agg( #thống kê cạnh theo từng cửa sổ lũy tiến
         is_cross_bank = ("is_cross_bank", "max"),
         is_self_loop  = ("is_self_loop",  "max"),
     ).astype("int8")
 
-    agg = aggregate_edges(src_win, formats, currencies)
+    agg = aggregate_edges(s_window, formats, currencies)# dataframe tổng hợp hành vi giao dịch giữa 2 người,
 
-    feat = edges.join(agg, how="left")                     # cạnh chưa có trong nguồn -> NaN
+    feat = edges.join(agg, how="left")                     
     feat["seen_before"] = feat["num_tx"].notna().astype("int8")
     return feat.fillna(0.0)
 

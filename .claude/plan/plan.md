@@ -8,13 +8,13 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 **Đề tài (tạm):** Hệ thống phát hiện gian lận giao dịch tài chính thời gian thực (có thể sử dụng classifier hoặc graphsage+classfier)
 
-**Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Realistic synthetic money, Graph Feature Preprocessor, Provably powerful graph network, Extracting money laundering, money laundering detection with multi-GIN-những paper này đều có dạng markdown trong folder IBM AML).
+**Hướng làm:** GNN mã hóa ở **cấp tài khoản** (nhẹ, ~515K node) nhưng **phân loại ở cấp giao dịch** (`Is Laundering`) để so trực tiếp với literature (Realistic synthetic money, Graph Feature Preprocessor, Provably powerful graph network, Amatriciana-những paper này đều có dạng markdown trong folder IBM AML paper/markdown).
 
 **Khung thực nghiệm (đã chốt): 3 nhóm model, TẤT CẢ đánh giá ở cấp giao dịch, cùng split, cùng minority-F1.** Khác nhau ở mức độ dùng đồ thị:
 
-- **Nhóm 1 — classical:** LR, DT, RF, XGBoost, MLP. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky)
-- **Nhóm 2 — GNN:** GCN, GraphSAGE, GAT, GIN. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end). bắt buộc làm graphsage những mô hình khác chỉ tham khảo
-- **Nhóm 3 — hybrid:** encoder nhóm 2 + **classifier** làm head. Đây là pipeline đề xuất (đóng góp 1).
+- **Nhóm 1 — classical:** LR,DT, RF,XGBoost,lightGBM. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky) nhóm 1 tune trong analysis_1.ipynb
+- **Nhóm 2 — GNN:** GraphSAGE. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end). bắt buộc làm graphsage những mô hình khác chỉ tham khảo
+- **Nhóm 3 — hybrid:** encoder nhóm 2 + **classifier(XGBoost,LightGBM)** làm head. Đây là pipeline đề xuất (đóng góp 1).
 
 cách làm graphsage kết hợp LSTM tương đồng mô hình amatriciana trong bài báo amatriciana.md
 
@@ -39,14 +39,12 @@ D:\ct551*v2
 ├─ nodelabel.py / temporal_split_index.py
 ├─ feature_transaction.py ✅ / feature_node.py ♻️ / feature_edge.py ♻️
 ├─ metrics.py ✅
-├─ assemble_txn.py ♻️ # ghép tx + as-of theo index (không join CSV)
-├─ build_graph.py ➕ # PyG graph lũy tiến + edge_attr lagged, cache .pt
-├─ train_classical.py ✅ (rerun) # nhóm 1
-├─ train_gnn.py ➕ # nhóm 2
+├─ assemble_txn.py ✅
+├─ build_graph.py ✅
+├─ train_classical.py ✅
+├─ train_gnn.py ✅
 ├─ train_hybrid.py ➕ # nhóm 3 + ablation
-├─ baseline_gfp.py ➕ # GFP + XGBoost (đối thủ)
 ├─ results.csv chỉ giữ bản mới nhất (ghi đè không append)
-└─ results-leaky.csv # kết quả trước fix — giữ làm bảng before/after
 
 **Cột Trans.csv:** `Timestamp, From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`.
 **Leading zero:** đọc bank/account dạng **string** khi join.
@@ -99,7 +97,6 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
   min/max amount (2 vai gửi–nhận), nunique_prior (đối tác, bank, currency — qua cờ
   flag), tỉ lệ cross-bank/ccy/round, tỉ lệ payment format, active time, tx_per_day, cờ first_seen (cold-start fill 0). Bỏ median/skew/kurt vì GFP xác nhận O(Δ), không streaming rẻ.
   Bỏ skew/kurtosis vì trong chế độ as-of/cold-start chúng phần lớn không định nghĩa được (cần ≥3–4 giao dịch lịch sử, cell thứ 3 trong skew_edge.ipynb đã minh chứng điều này) và moment bậc cao bất ổn số học khi tính tích lũy trong pandas — dù GFP tính được O(1) bằng central moment streaming trong C++.
-- xây dựng web và hệ thống thời gian thực
 - **Edge_attr cho GNN** (`feature_edge.py` ♻️, **lagged causal**): thống kê cặp
   (src,dest) gộp cạnh, tính từ cửa sổ TRƯỚC cửa sổ eval:
   - train-graph ← chính cửa sổ train (không có gì trước nó — limitation, ghi §9);
@@ -123,40 +120,58 @@ Graph có hai vai: **cấu trúc** (được lũy tiến) và **feature số** (
 
 ### Bước 5 — Nhóm 1 (classical, per-transaction) — **sàn**
 
-xgboost/random forest/ lightGBM/ mlp/ lr trên ma trận assemble mới. **classifier = V0**. Đầu ra: results.csv
+xgboost/random forest/ lightGBM/ decision tree/ lr trên ma trận assemble mới. **classifier = V0**. Đầu ra: results.csv
 (model, seed, split, f1_minority, f1@0.5, precision, recall, pr_auc, recall@fpr1%,
 precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.json)
 
-- các bài báo có dùng node feature liên quan (trong folder md IBM AML): Anti-Money Laundering Alert Optimization, Application of Classical & Quantum-Hybrid, Privacy-Preserving Graph-Based, Amatriciana (Temporal GNN), Graph Feature Preprocessor, NETWORK ANALYTICS trong folder md IBM AML , Provably Powerful Multigraph (Egressy), fraudGT, Realistic Synthetic
+- kết quả lighGBM>XGBoost>Random Forest>Decision Tree>Logistic regression
 
 ### Bước 6 — Nhóm 2 (GNN + edge head, end-to-end)
 
-- bắt tay làm web và thời gian thực cho nhóm 1
 - Encoder message passing trên graph Bước 4 (2 layer, neighbor sampling [15,10],
-  batch 512, AMP). **Encoder phải nhận edge_attr**: GIN, GAT(edge_dim),
-  SAGE+edge-concat; GCN thuần = biến thể không edge_attr (đối chứng topology-only).
+  batch 512, AMP). **Encoder phải nhận edge_attr**:
+  SAGE+edge-concat = biến thể không edge_attr (đối chứng topology-only).
 - Head: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + pos_weight/focal.
-- Screen 1 cấu hình/họ → tune top 1–2 → chọn encoder tốt nhất.
+- tune encoder
 - Xuất node embedding (+ điểm mule nếu bật aux) cho nhóm 3.
-- bỏ hết chỉ làm graphsage trước mấy cái GNN khác là optional/bonus đéo quan trọng
+-
 
-### Bước 7 — Nhóm 3 (hybrid) + ablation + đối thủ
+### Bước 7 — Nhóm 3 hybrid: GraphSAGE(LSTM)+XGBoost/LightGBM
 
-- Vector = `[V0 feat + emb_src + emb_dest] (+ điểm mule)` → **classifier**.
-- **Ablation:** V0 (Bước 5) → V2 (V0 + embedding). Delta V0→V2 = phần embedding đóng
-  góp THÊM trên sàn mạnh = bằng chứng đóng góp 1. V1 (+mule) optional.
-- Embedding test tính theo graph lũy tiến chuẩn Altman (cấm dùng label test).
+- trong thời gian chạy nhóm 3 dựng khung web chạy thử nghiệm với mô hình nhóm 1
+- khung web gồm có các tính năng sau: có tùy chọn từ ngày nào đến ngày nào, tùy chọn mô hình, rồi
+  vẽ ra biểu đồ thống kê giao dịch, thống kê feature của 1 node trong khoảng thời gian, tài khoản có
+  hoạt động như thế nào (bảng tra cứu embedding vào web), lọc ra được các giao dịch gian lận và không gian lận và nút chi tiết khi bấm vào sẽ hiện ra pattern và SHAP
+
+Quy trình đo latency:
+
+- Tách hai chế độ, KHÔNG gộp:
+- Chế độ duyệt: đọc score/feature đã precompute → UI mượt khi kéo slider.
+  Đây là phần demo cho hội đồng xem.
+- Chế độ đo (benchmark_latency.py): replay tuần tự theo Timestamp, tính
+  as-of state LIVE, chấm điểm từng giao dịch. Chạy một lần, xuất bảng số.
+
+  Ràng buộc khi đo:
+
+- batch size = 1 (predict cả tập rồi chia = đo throughput theo lô, không phải latency)
+- dùng numpy array, KHÔNG dựng DataFrame 1 dòng mỗi giao dịch (overhead pandas
+  sẽ lớn hơn cả thời gian predict và chiếm trọn con số)
+- warm-up: bỏ ~5.000 giao dịch đầu trước khi ghi số
+- tách thành phần: cập nhật as-of / dựng vector / tra embedding (nhóm 3) / predict
+- báo cáo p50/p95/p99 + throughput, đơn luồng
+- đối chiếu ngưỡng nghiệp vụ CÓ TRÍCH DẪN (vd. độ trễ luồng authorization thẻ),
+  không tự đặt ngưỡng
 
 ---
 
 ## 6. Độ đo & chống leakage
 
-- **Metric (`metrics.py`):** minority-F1 cấp giao dịch (chính, so 63.23/68.16),
+- **Metric (`metrics.py`):** minority-F1 cấp giao dịch (chính),
   PR-AUC, recall@FPR, precision@k. Threshold tune trên val. Ghi rõ split.
-- Hàm mất mát: weighted cross-entropy, focal loss.
-- **Mất cân bằng:** class_weight (LR/RF), scale_pos_weight (XGBoost), pos_weight/focal (GNN).
+- Hàm mất mát:
+- **Mất cân bằng:** class_weight (LR/RF), scale_pos_weight (XGBoost), (GNN).
 - **Chống leakage (đã chốt):**
-  - Feature số nhóm 1/3: as-of per transaction — không thống kê nào thấy t' ≥ t. (phải có cell thống kê, analysis_1.ipynb làm được chưa)
+  - Feature số nhóm 1/3: as-of per transaction — không thống kê nào thấy t' ≥ t. (cần thống kê)
   - edge_attr GNN: lagged theo cửa sổ (val←train, test←train+val).
   - Cấu trúc graph: lũy tiến chuẩn Altman.
   - Scaler fit train-only; embedding test không dùng label test;
@@ -183,21 +198,30 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 
 ## 8. Định vị khoa học & đóng góp
 
-**Baseline HI-Small (minority-F1, đã xác minh):** GIN 28.70 · GIN+EU 47.73 · PNA 56.77
-· GFP+LightGBM 62.86 · GFP+XGBoost **63.23** · Multi-PNA+EU **68.16** (Egressy, mốc trên).
+\*\*BaselineLi/ HI-Small (minority-F1, đã xác minh): phát triển dựa trên cách làm GraphSAGE+LSTM+XGBoost/lightGBM của amatriciana
 
-Bài đo được baseline khác (folder IBM AML): Realistic Synthetic (Altman), **ExSTraQt**
-(Extracting Money Laundering — gộp cạnh, batch whole-window aggregate → tiền lệ cho
-edge_attr trên cạnh gộp; phương án của ta lagged, chặt hơn), Graph Feature
-Preprocessor, MAGIC, Finding Money Launderers (Jensen).
+**Đóng góp 1 (chính):** pipeline hybrid GraphSAGE-LSTM (cấp tài khoản) +
+XGBoost/LightGBM (cấp giao dịch), kế thừa kiến trúc Amatriciana với 3 cải tiến
+hướng real-time trên phần cứng phổ thông (VRAM 4GB):
+(i) chuyển node-classification + split stratified ngẫu nhiên (có temporal leakage)
+của Amatriciana thành transaction-classification + temporal split chặt;
+(ii) thay multidimensional adjacency 384 step và feature centrality toàn cửa sổ
+(closeness/eigenvector/clustering — O(V·E), không streaming) bằng
+edge_attr gộp cạnh lagged + node_seq bucket ngày: mọi thống kê cập nhật
+incremental O(1), tương thích streaming;
+(iii) thay head MLP bằng gradient boosting.
+Câu hỏi khoa học: đạt bao nhiêu % hiệu năng GNN edge-level nặng (Provably Powerful,
+FraudGT) với chi phí thấp hơn (so chi phí: GFP, Quasi-temporal, Amatriciana).
 
-**Đóng góp 1 (chính):** encoder GNN nhẹ (cấp tài khoản) + XGBoost đạt bao nhiêu %
-hiệu năng GNN edge-level nặng Provably powerful graph neural network.md (Egressy) với chi phí thấp hơn bao nhiêu hoặc là chỉ làm nhóm 1 rồi so
-với các paper khác cũng được (Quasi-temporal graph.md, Graph feature preprocessor.md, Provably Network.md (Egressy), realistic synthetic.md, Amatriciana)? băng thông và tốc độ so với blazingAML
+**Đóng góp 2 (sau, systems):** đo và báo cáo chi phí suy luận theo từng giao dịch
+của cả hai pipeline trên phần cứng phổ thông. KHÔNG làm kiến trúc 2 đường
+nóng/nguội (chi phí hạ tầng lớn, không tạo đóng góp khoa học)
 
-**Đóng góp 2 (sau, systems):** real-time 2 đường (nóng XGBoost/CPU, nguội GNN refresh
-embedding/GPU) — latency/throughput + staleness. hay chỉ cần nhóm 1 real-time thôi là đủ
-không đường nóng nguội gì hết
+- Nhóm 1: streaming thật. Cập nhật as-of state O(1) → feature → LightGBM/xgboost
+- Nhóm 3: hai tầng. Tầng online (tra embedding + as-of + LightGBM/xgboost) theo từng
+  giao dịch; tầng offline (chạy lại encoder GraphSAGE) refresh theo cửa sổ.
+- Kết luận nhắm tới: hybrid đạt X% hiệu năng với độ trễ online ngang nhóm 1,
+  đổi lại cần refresh embedding mỗi N giờ. So chi phí: APAN/BRIGHT/blazingAML.
 
 ---
 
@@ -207,10 +231,5 @@ không đường nóng nguội gì hết
   dữ liệu trước) → mismatch ngữ nghĩa train/test — cùng tinh thần ExSTraQt batch;
   (b) cold-start: cạnh/account mới trong test có aggregate=0 — đúng vùng fraud hay nằm,
   cờ seen_before giúp model học điều này.
-- **Gộp cạnh + trích xuất feature per-tx** vs multigraph Egressy: nhóm 2 KHÔNG reproduce GIN 28.7
   — là phương pháp đề xuất; baseline GNN so cứng thì trích số công bố.
-- **Nhóm 2 end-to-end 5M nhãn** = nút thắt compute. nên có thể bỏ luôn đéo làm chỉ làm graphsage+LSTM thôi
-- **thử nghiệm các mô hình khác nhau rồi tune top 1–2** — có thể bỏ sót model thắng.
-- **Vấn đề mở:** nhãn node-mule dòng thời gian toàn cục (chỉ dự phòng, v1 chấp nhận); tie-breaking
-  split khi tái dùng LI-Small cần kiểm edge case.
-- tôi làm grid search còn GFP (Blanuša 2024) và Altman 2023 dùng successive halving trên không gian random (x₀=1000 config cho dataset Small, η=2, r₀=0.1) so sánh kết quả phải so đủ chi phí và metrics
+- so sánh mô hình baseline và đề xuất với các mô hình của bài báo khác
