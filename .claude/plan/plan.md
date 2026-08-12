@@ -131,10 +131,11 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 - Encoder message passing trên graph Bước 4 (2 layer, neighbor sampling [15,10],
   batch 512, AMP). **Encoder phải nhận edge_attr**:
   SAGE+edge-concat = biến thể không edge_attr (đối chứng topology-only).
-- Head: `head([emb_src ‖ emb_dst ‖ tx_feat])`, BCE per-transaction + pos_weight/focal.
-- tune encoder
-- Xuất node embedding (+ điểm mule nếu bật aux) cho nhóm 3.
--
+- thực nghiệm 4 dạng graphsage: noedge, edge, noedge+lSTM, edge+LSTM sẽ chọn ra model thắng
+  sau 2 lần chạy, sau 2 lần chạy lại so sánh model thắng mới bước vào nhóm 3
+- phải tuân thủ không leak dữ liệu và đồng bộ logic với đóng góp 1 mục 8
+- thực hiện trên cấu hình GPU T4 x 2 (kaggle, colab)
+- đã thực hiện xong nhóm 2 kết quả: train-gnn.ipynb, kết quả: results-gnn-news, variant_board, zip scores trong folder scores
 
 ### Bước 7 — Nhóm 3 hybrid: GraphSAGE(LSTM)+XGBoost/LightGBM
 

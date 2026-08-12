@@ -27,13 +27,13 @@ def build_vocab(df):
 
 
 def build_graph(name, node_id, x):
-    ea = pd.read_parquet(f"{OUT}/edge_attr_{name}.parquet")
-    si = node_id.reindex(ea["src"]).to_numpy()
-    di = node_id.reindex(ea["dest"]).to_numpy()
-    assert not (np.isnan(si).any() or np.isnan(di).any()), "cạnh có node ngoài vocab"
+    edge = pd.read_parquet(f"{OUT}/edge_attr_{name}.parquet")
+    src = node_id.reindex(edge["src"]).to_numpy()
+    dst = node_id.reindex(edge["dest"]).to_numpy()
+    assert not (np.isnan(src).any() or np.isnan(dst).any()), "cạnh có node ngoài vocab"
 
-    feat = ea.drop(columns=["src", "dest"]).to_numpy(dtype=np.float32)
-    fwd = torch.from_numpy(np.stack([si, di]).astype(np.int64))
+    feat = edge.drop(columns=["src", "dest"]).to_numpy(dtype=np.float32)
+    fwd = torch.from_numpy(np.stack([src, dst]).astype(np.int64))
     rev = fwd.flip(0)                                   # cạnh ngược, cùng edge_attr
     attr = torch.from_numpy(feat)
     flag = torch.zeros(attr.size(0), 1)
