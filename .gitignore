@@ -1,7 +1,11 @@
 dataset_high/
+figures/
+scores/
+GNN-v1/
 *.csv
 .idea/
 .*pdf
 *.docx
 *.pdfleaky/*.parquet
 leaky/*.parquet
+.*

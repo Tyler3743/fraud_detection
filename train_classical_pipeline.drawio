@@ -1,0 +1,51 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="train_classical pipeline" id="train-classical-pipeline">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="n1" value="1. feature_transaction.py&#10;Feature mức giao dịch → transaction_features.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="20" width="320" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n2" value="2. feature_node.py&#10;Feature as-of mức node/cặp (src, dest) → node_edge_features.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="120" width="320" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n3" value="3. assemble_txn.py&#10;Ghép ~90 feature → txn_matrix_{train,val,test}.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="220" width="320" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n4" value="4. train_classical.py — Scale&#10;StandardScaler fit trên train, chỉ áp dụng cho lr (rf/xgb/lgb/dt dùng dữ liệu chưa scale)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="270" y="320" width="340" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n5" value="5. Train từng model&#10;lr / rf / xgb / lgb / dt × 4 seed (xgb/lgb early-stopping trên 10% đuôi cuối train theo thời gian)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="270" y="420" width="340" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n6" value="6. Dự đoán &amp; log&#10;Dự đoán val/test → scores/{model}_seed{seed}_{split}.npy, tìm ngưỡng tốt nhất trên val, log_result (metrics.py) → results.csv" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="260" y="520" width="360" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n7" value="7. Tổng hợp kết quả&#10;print_summary (bảng F1 val/test theo model), plot_confusion_matrices (test, TB 5 seed, ngưỡng chọn trên val)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="260" y="640" width="360" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n8" value="8. Chọn &amp; lưu model thắng&#10;pick_best_model theo F1 test trung bình → train lại cho từng seed → lưu models/ (.joblib / .json cho xgboost)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="260" y="750" width="360" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n1" target="n2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n2" target="n3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n3" target="n4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n4" target="n5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n5" target="n6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n6" target="n7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n7" target="n8"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

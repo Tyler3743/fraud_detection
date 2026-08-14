@@ -5,8 +5,8 @@ import torch
 from torch_geometric.data import Data
 
 from feature_node import load_data
+from paths import EDGE_ATTR, GRAPHS_PT, TXN_NODES
 
-OUT = "dataset_high"
 GRAPH_SPLITS = {                       # cấu trúc lũy tiến chuẩn Altman
     "train": ["train"],
     "val":   ["train", "val"],
@@ -27,13 +27,13 @@ def build_vocab(df):
 
 
 def build_graph(name, node_id, x):
-    edge = pd.read_parquet(f"{OUT}/edge_attr_{name}.parquet")
-    src = node_id.reindex(edge["src"]).to_numpy()
-    dst = node_id.reindex(edge["dest"]).to_numpy()
-    assert not (np.isnan(src).any() or np.isnan(dst).any()), "cạnh có node ngoài vocab"
+    ea = pd.read_parquet(EDGE_ATTR.format(name))
+    si = node_id.reindex(ea["src"]).to_numpy()
+    di = node_id.reindex(ea["dest"]).to_numpy()
+    assert not (np.isnan(si).any() or np.isnan(di).any()), "cạnh có node ngoài vocab"
 
-    feat = edge.drop(columns=["src", "dest"]).to_numpy(dtype=np.float32)
-    fwd = torch.from_numpy(np.stack([src, dst]).astype(np.int64))
+    feat = ea.drop(columns=["src", "dest"]).to_numpy(dtype=np.float32)
+    fwd = torch.from_numpy(np.stack([si, di]).astype(np.int64))
     rev = fwd.flip(0)                                   # cạnh ngược, cùng edge_attr
     attr = torch.from_numpy(feat)
     flag = torch.zeros(attr.size(0), 1)
@@ -58,14 +58,15 @@ def main():
     print(f"vocab: {len(node_id):,} node | {n_bank:,} bank")
 
     graphs = {n: build_graph(n, node_id, x) for n in GRAPH_SPLITS}
-    torch.save({"graphs": graphs, "num_banks": n_bank}, f"{OUT}/graphs.pt")
+    os.makedirs(os.path.dirname(GRAPHS_PT), exist_ok=True)
+    torch.save({"graphs": graphs, "num_banks": n_bank}, GRAPHS_PT)
 
     # ánh xạ giao dịch -> (node gửi, node nhận), theo ĐÚNG thứ tự file gốc
     df = df.sort_values("ori_idx")
     txn = np.stack([node_id.reindex(df["src"]).to_numpy(),
                     node_id.reindex(df["dest"]).to_numpy()]).astype(np.int64).T
-    np.save(f"{OUT}/txn_nodes.npy", txn)
-    print(f"đã lưu {OUT}/graphs.pt và txn_nodes.npy shape={txn.shape}")
+    np.save(TXN_NODES, txn)
+    print(f"đã lưu {GRAPHS_PT} và {TXN_NODES} shape={txn.shape}")
 
 
 if __name__ == "__main__":
