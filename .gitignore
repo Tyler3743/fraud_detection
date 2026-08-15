@@ -2,6 +2,9 @@ dataset_high/
 figures/
 scores/
 GNN-v1/
+models/
+paper/
+IBM AML paper/
 *.csv
 .idea/
 .*pdf

@@ -97,16 +97,6 @@ def build_window(df, src_splits, graph_splits, formats, currencies):
 
 
 def rank_edges(feats, cols):
-    """Rank phần trăm TRONG TỪNG BẢNG, chỉ trên dòng có lịch sử (seen_before == 1).
-
-    Cửa sổ nguồn dài dần (1.53 -> 5.57 -> 7.67 ngày) nên num_tx / total_paid /
-    active_hour trôi tới +1.5 sigma nếu chuẩn hoá bằng scaler fit trên train.
-    Rank ép cả ba bảng về cùng một phân phối đều.
-
-    Chỉ rank trên dòng seen: tập dòng này do cửa sổ QUÁ KHỨ quyết định, nên thứ hạng
-    không phụ thuộc số cạnh mới của cửa sổ tương lai -> không transduction.
-    Dòng cold-start nhận 0.0, cờ seen_before đã phân biệt sẵn.
-    """
     for name, f in feats.items():
         r = f[cols].astype("float64")
         r[f["seen_before"] == 0] = np.nan        # loại khỏi bảng xếp hạng
@@ -141,11 +131,6 @@ def verify(df, feats, formats, currencies):
     for name, f in feats.items():
         r = 1 - f["seen_before"].mean()
         print(f"  {name:5s}: {len(f):>9,} cạnh | cold-start {r*100:5.2f}%")
-
-    # 4. cặp cột TRÙNG KHÍT ở train nhưng TÁCH RA ở test: phần trọng số vô định lúc
-    #    train sẽ thành nhiễu lúc test. Đây đúng là chỗ tx_per_day ~ num_tx trước đây
-    #    (train r=1.0000 -> test r=0.6247). Tương quan cao đều ở cả hai bảng chỉ là dư
-    #    thừa vô hại (max_paid ~ mean_paid: 0.9960 vs 0.9957) nên không bắt.
     cc = {n: feats[n].loc[feats[n]["seen_before"] == 1, EDGE_RANK_COLS]
                      .corr().abs().fillna(0.0) for n in ("train", "test")}
     gap = (cc["train"] - cc["test"]).abs().to_numpy(copy=True)

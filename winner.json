@@ -1,0 +1,18 @@
+{
+  "winner": "sage",
+  "variants": [
+    "sage",
+    "sage_noedge"
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "select_on": "val/pr_auc",
+  "select_scores": {
+    "sage": 0.3901,
+    "sage_noedge": 0.3831
+  }
+}
