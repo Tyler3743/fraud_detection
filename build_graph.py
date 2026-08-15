@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch_geometric.data import Data
-
+#tạo ra txn_node và graphs.zip
 from feature_node import load_data
 from paths import EDGE_ATTR, GRAPHS_PT, TXN_NODES
 

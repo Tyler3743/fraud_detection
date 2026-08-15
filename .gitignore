@@ -11,4 +11,5 @@ IBM AML paper/
 *.docx
 *.pdfleaky/*.parquet
 leaky/*.parquet
-.*
+*.zip
+*.npy

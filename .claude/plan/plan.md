@@ -14,7 +14,7 @@ File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạc
 
 - **Nhóm 1 — classical:** LR,DT, RF,XGBoost,lightGBM. Không message passing; phân loại từng giao dịch bằng transaction feature và as-of aggregate (tổng hợp feature không làm temporal leaky) nhóm 1 tune trong analysis_1.ipynb
 - **Nhóm 2 — GNN:** GraphSAGE. Encoder trên graph tài khoản gộp cạnh (edge_attr lagged) + head phân loại từng giao dịch (end-to-end). bắt buộc làm graphsage những mô hình khác chỉ tham khảo
-- **Nhóm 3 — hybrid:** encoder nhóm 2 + **classifier(XGBoost,LightGBM)** làm head. Đây là pipeline đề xuất (đóng góp 1).
+- **Nhóm 3 — hybrid:** edge/noedge-lstm + **classifier(XGBoost,LightGBM)** 4 seed nếu thành công đây là đóng góp 1
 
 cách làm graphsage kết hợp LSTM tương đồng mô hình amatriciana trong bài báo amatriciana.md
 
@@ -162,6 +162,8 @@ Quy trình đo latency:
 - báo cáo p50/p95/p99 + throughput, đơn luồng
 - đối chiếu ngưỡng nghiệp vụ CÓ TRÍCH DẪN (vd. độ trễ luồng authorization thẻ),
   không tự đặt ngưỡng
+
+- tóm lại là thực nghiệm nhóm 3 xong còn đem kết quả đi làm web demo trên máy nữa
 
 ---
 

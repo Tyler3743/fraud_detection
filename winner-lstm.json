@@ -12,7 +12,7 @@
   ],
   "select_on": "val/pr_auc",
   "select_scores": {
-    "sage_lstm": 0.4136,
-    "sage_noedge_lstm": 0.4038
+    "sage_lstm": 0.4138,
+    "sage_noedge_lstm": 0.4036
   }
 }
