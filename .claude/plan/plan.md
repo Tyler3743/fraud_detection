@@ -2,7 +2,10 @@
 
 File context. Đọc đầu mỗi phiên để nắm trạng thái + kế hoạch.
 
----
+folder extraqt-main là folder tải về từ bài báo exraqt có trong folder IBM AML paper/markdown
+
+làm là phải tuân thủ cách chia, train trên quy chuẩn chung trong giới data science nếu không biết train/ split như thế nào
+phải xem cách các bài báo làm không được chia bậy
 
 ## 1. Tổng quan
 
@@ -137,35 +140,85 @@ precision@1000, threshold, train_time_s, params JSON), scores, npy, model V0 (.j
 - thực hiện trên cấu hình GPU T4 x 2 (kaggle, colab)
 - đã thực hiện xong nhóm 2 kết quả: train-gnn.ipynb, kết quả: results-gnn-news, variant_board, zip scores trong folder scores
 
-### Bước 7 — Nhóm 3 hybrid: GraphSAGE(LSTM)+XGBoost/LightGBM
+### Bước 7 — Nhóm 3 hybrid: GraphSAGE-LSTM(embedding) + XGBoost/LightGBM
 
-- trong thời gian chạy nhóm 3 dựng khung web chạy thử nghiệm với mô hình nhóm 1
-- khung web gồm có các tính năng sau: có tùy chọn từ ngày nào đến ngày nào, tùy chọn mô hình, rồi
-  vẽ ra biểu đồ thống kê giao dịch, thống kê feature của 1 node trong khoảng thời gian, tài khoản có
-  hoạt động như thế nào (bảng tra cứu embedding vào web), lọc ra được các giao dịch gian lận và không gian lận và nút chi tiết khi bấm vào sẽ hiện ra pattern và SHAP
+**7a. Thực nghiệm hybrid** (`train_hybrid.py` ➕, chạy LOCAL)
 
-Quy trình đo latency:
+Đầu vào có sẵn, không train lại encoder: `train_gnn.py` đã xuất embedding ngay
+sau mỗi biến thể — 24 file `emb_{variant}_seed{k}_{split}.npy`, mỗi file
+`[515_088, 32]` float32 (66 MB), đã tải về `scores/emb-lstm/`.
+Ma trận nhóm 3 = `[90 cột txn_matrix | emb_src(32) | emb_dst(32) | 3 vô hướng]`,
+ghép qua `txn_nodes.npy` theo đúng cách `train_gnn.py` làm (`nodes[split == s]`).
 
-- Tách hai chế độ, KHÔNG gộp:
-- Chế độ duyệt: đọc score/feature đã precompute → UI mượt khi kéo slider.
+**Tập train bắt buộc là `train_b`, KHÔNG phải toàn bộ train.**
+`WINDOWS["train"] = (["train_a"], [...])` — cả `edge_attr` lẫn `node_seq` của
+train-graph chỉ tính từ `train_a` (`node_seq.py::verify` chứng minh bằng test xáo
+dữ liệu). Với giao dịch `t ∈ train_a`, cửa sổ nguồn chứa chính `t` → embedding
+hai đầu mút đã thấy `t'≥ t` → vi phạm §6. Chỉ `train_b` là causal.
+
+- train_b: **1,523,920 dòng / 1,773 pos (0.116%)**
+- toàn train: 3,046,861 dòng / 2,297 pos (0.0754%)
+- val (1,015,602) và test (1,015,882) KHÔNG bị cắt — graph val dùng cửa sổ train,
+  graph test dùng train+val. Hai nhóm đánh giá trên đúng cùng một tập.
+- Ghi chú: train_b có fraud rate cao hơn toàn train 1.5×, đúng chiều distribution
+  shift ở §3 → gần phân phối val/test hơn, bù một phần cho việc mất nửa dữ liệu.
+
+**Lưới ablation — 5 nhánh × 2 booster × 4 seed = 40 lượt fit**, tất cả trên
+`train_b`, cùng seed, cùng `PARAMS` đã tune ở nhóm 1 (không tune lại → khác biệt
+duy nhất là feature):
+
+| nhánh | cột | trả lời câu hỏi                                                               |
+| ----- | --- | ----------------------------------------------------------------------------- |
+| `V0`  | 90  | sàn — chính là nhóm 1 chạy trên train_b                                       |
+| `V1e` | 93  | chỉ 3 vô hướng, bỏ 64 chiều thô — có cần embedding thô không?                 |
+| `V2e` | 154 | embedding thô, encoder thắng (`sage_lstm`)                                    |
+| `V3e` | 157 | thô + 3 vô hướng — boosting khai thác hết embedding thô chưa?                 |
+| `V2n` | 154 | embedding thô, `sage_noedge_lstm` — edge_attr còn giá trị dưới head boosting? |
+
+Ba cột vô hướng = `cosine(u,v)`, `‖u−v‖₂`, `dot(u,v)`. Lý do: cây chia trục-song-song,
+không biểu diễn được tích vô hướng của hai vector 32 chiều. Tiền lệ: binary operator
+của node2vec (Grover & Leskovec 2016).
+
+Quy ước bắt buộc:
+
+- Ghép seed theo cặp: booster seed `k` dùng `emb_..._seed{k}_*`. **KHÔNG trung bình
+  embedding qua seed** — mỗi lần train sinh một không gian ẩn khác (hoán vị/xoay),
+  cộng trung bình sẽ triệt tiêu tín hiệu. (Trung bình _điểm dự đoán_ thì hợp lệ.)
+- `V0` phải chạy lại trên train_b, không tái dùng số của `results.csv`.
+- Nhưng KHÔNG được bỏ bản nhóm 1 trên 100% train — nhóm 1 không bị ràng buộc lagged
+  nên train đủ là quyền chính đáng của nó. Cắt baseline để đóng góp trông mạnh là
+  lỗi phản biện bắt ngay. Báo cáo cả hai, tách hai khối bảng.
+
+Đầu ra: `results-hybrid.csv` (xoá trước mỗi lần chạy — `log_result` ghi mode="a"),
+`scores/{arm}_{booster}_seed{k}_{split}.npy`, `models/{arm}_{booster}_seed{k}.json|joblib`.
+Hiệu ghép cặp theo seed phải in ra: `V2e−V0`, `V1e−V0`, `V2e−V1e`, `V3e−V2e`, `V2e−V2n`.
+Với 4 seed và std cỡ 0.01 (mức của nhóm 2), hiệu **dưới ~0.01 phải phát biểu là
+"không phân biệt được"**, không phải "bằng nhau", càng không phải "thua".
+
+Chi phí đo được: RAM đỉnh ~4.7 GB, ~20 phút trên máy local.
+
+**7b. Web demo** (dựng song song trong lúc chạy 7a, bằng mô hình nhóm 1)
+
+Khung web gồm: tùy chọn khoảng ngày, tùy chọn mô hình, biểu đồ thống kê giao dịch,
+thống kê feature của 1 node trong khoảng thời gian, bảng tra cứu embedding, lọc giao
+dịch gian lận/không gian lận, nút chi tiết hiện pattern và SHAP.
+
+Quy trình đo latency — tách hai chế độ, KHÔNG gộp:
+
+- **Chế độ duyệt:** đọc score/feature đã precompute → UI mượt khi kéo slider.
   Đây là phần demo cho hội đồng xem.
-- Chế độ đo (benchmark_latency.py): replay tuần tự theo Timestamp, tính
-  as-of state LIVE, chấm điểm từng giao dịch. Chạy một lần, xuất bảng số.
+- **Chế độ đo** (`benchmark_latency.py`): replay tuần tự theo Timestamp, tính as-of
+  state LIVE, chấm điểm từng giao dịch. Chạy một lần, xuất bảng số.
 
-  Ràng buộc khi đo:
+Ràng buộc khi đo:
 
 - batch size = 1 (predict cả tập rồi chia = đo throughput theo lô, không phải latency)
-- dùng numpy array, KHÔNG dựng DataFrame 1 dòng mỗi giao dịch (overhead pandas
-  sẽ lớn hơn cả thời gian predict và chiếm trọn con số)
+- dùng numpy array, KHÔNG dựng DataFrame 1 dòng mỗi giao dịch
 - warm-up: bỏ ~5.000 giao dịch đầu trước khi ghi số
 - tách thành phần: cập nhật as-of / dựng vector / tra embedding (nhóm 3) / predict
 - báo cáo p50/p95/p99 + throughput, đơn luồng
-- đối chiếu ngưỡng nghiệp vụ CÓ TRÍCH DẪN (vd. độ trễ luồng authorization thẻ),
-  không tự đặt ngưỡng
-
-- tóm lại là thực nghiệm nhóm 3 xong còn đem kết quả đi làm web demo trên máy nữa
-
----
+- đối chiếu ngưỡng nghiệp vụ CÓ TRÍCH DẪN (vd. độ trễ luồng authorization thẻ)
+- **toàn bộ đo trên máy A (local)**, xem §8 Môi trường thực nghiệm
 
 ## 6. Độ đo & chống leakage
 
@@ -201,18 +254,47 @@ Quy trình đo latency:
 
 ## 8. Định vị khoa học & đóng góp
 
-\*\*BaselineLi/ HI-Small (minority-F1, đã xác minh): phát triển dựa trên cách làm GraphSAGE+LSTM+XGBoost/lightGBM của amatriciana
+**Môi trường thực nghiệm (phải khai trong luận văn):**
+
+- **Máy A — local:** i5-13420H (8 nhân/12 luồng), 16 GB RAM, RTX 2050 4 GB.
+  Chạy nhóm 1, nhóm 3, và TOÀN BỘ phần đo độ trễ/throughput.
+- **Máy B — Kaggle:** 1× Tesla T4 (trong 2 card được cấp; `train_gnn.py` chỉ dùng
+  `cuda:0`), 4 vCPU, ~29 GB RAM. Chỉ huấn luyện encoder nhóm 2.
+  Lý do có số: `VRAM đỉnh 3.52 GB` vượt bộ nhớ khả dụng của card 4 GB.
+- Số **chất lượng** (f1_minority, PR-AUC, recall@FPR, precision@k) không phụ thuộc
+  phần cứng — cùng split, cùng `txn_matrix`, cùng `metrics.py`, cùng quy trình dò
+  ngưỡng trên val → so chéo ba nhóm hợp lệ.
+- Số **chi phí** (`train_time_s`) phụ thuộc phần cứng → ghi kèm `"device"` trong
+  chuỗi `params`, KHÔNG đặt cạnh nhau để so chéo nhóm. Mọi luận điểm chi phí đo
+  lại trên máy A.
 
 **Đóng góp 1 (chính):** pipeline hybrid GraphSAGE-LSTM (cấp tài khoản) +
-XGBoost/LightGBM (cấp giao dịch), kế thừa kiến trúc Amatriciana với 3 cải tiến
-hướng real-time trên phần cứng phổ thông (VRAM 4GB):
+XGBoost/LightGBM (cấp giao dịch), kế thừa kiến trúc Amatriciana với 3 cải tiến:
 (i) chuyển node-classification + split stratified ngẫu nhiên (có temporal leakage)
 của Amatriciana thành transaction-classification + temporal split chặt;
 (ii) thay multidimensional adjacency 384 step và feature centrality toàn cửa sổ
-(closeness/eigenvector/clustering — O(V·E), không streaming) bằng
-edge_attr gộp cạnh lagged + node_seq bucket ngày: mọi thống kê cập nhật
-incremental O(1), tương thích streaming;
+(closeness/eigenvector/clustering — O(V·E), không streaming) bằng edge_attr gộp
+cạnh lagged + `node_seq` bucket 6 giờ (K=8, tức 2 ngày cuối cửa sổ nguồn):
+mọi thống kê cập nhật incremental O(1), tương thích streaming;
 (iii) thay head MLP bằng gradient boosting.
+
+**Phát biểu chính xác về phần cứng** (không được viết "train được trên VRAM 4 GB"):
+huấn luyện encoder là bước **offline, định kỳ**, cần GPU 16 GB (đo được: đỉnh
+3.52 GB, quá tầm RTX 2050); còn **suy luận từng giao dịch** — tra embedding đã lưu
+
+- cập nhật as-of + gradient boosting — không đụng GPU và chạy trên phần cứng phổ
+  thông. Đóng góp hướng real-time nằm ở tầng suy luận, không ở tầng huấn luyện.
+
+**Cách chứng minh đóng góp:** lưới ablation 5 nhánh ở Bước 7a. Kết luận rút ra từ
+hiệu ghép cặp theo seed, không từ so số tuyệt đối với nhóm 1 (khác lượng dữ liệu train).
+
+- `V2e − V0` > 0: embedding cấp tài khoản làm classifier cấp giao dịch tốt lên.
+- `V2e − V1e` > 0: 64 chiều thô mang thông tin không quy về khoảng cách giữa hai node
+  — nếu ≈ 0 thì encoder LSTM chưa biện minh được, phải xem lại đóng góp.
+- `V2e − V2n`: edge_attr có còn giá trị khi head là boosting thay vì MLP.
+  (Nhóm 2 với head MLP: test f1 0.5205 so 0.4881 — chênh 0.032, std 0.0133.)
+- `V3e − V2e`: giới hạn biểu diễn trục-song-song của cây có thật hay không.
+
 Câu hỏi khoa học: đạt bao nhiêu % hiệu năng GNN edge-level nặng (Provably Powerful,
 FraudGT) với chi phí thấp hơn (so chi phí: GFP, Quasi-temporal, Amatriciana).
 

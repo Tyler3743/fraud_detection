@@ -3,6 +3,7 @@ figures/
 scores/
 GNN-v1/
 models/
+exstraqt-main/
 paper/
 IBM AML paper/
 *.csv
