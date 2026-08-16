@@ -1,0 +1,7 @@
+,,pr_auc,pr_auc,f1_minority,f1_minority,recall,recall
+,,mean,std,mean,std,mean,std
+split,model,,,,,,
+test,sage,0.4334,0.0128,0.4793,0.0125,0.4219,0.0329
+test,sage_noedge,0.4256,0.0149,0.4835,0.0093,0.4294,0.012
+val,sage,0.3901,0.0076,0.4304,0.0078,0.3586,0.0232
+val,sage_noedge,0.3831,0.005,0.4291,0.0071,0.3614,0.0141
