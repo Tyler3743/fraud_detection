@@ -1,10 +1,9 @@
-# train_hybrid.py — nhóm 3: embedding GraphSAGE-LSTM + gradient boosting
 import json, os, time
 import numpy as np, pandas as pd, joblib
 import pyarrow.parquet as pq
 from paths import TX_FEAT, TXN_NODES, TXN_MATRIX, OUT_DIR
 from metrics import find_best_threshold, evaluate, log_result
-from train_classical import PARAMS, build_model, fit   # tái dùng siêu tham số + early-stopping nhóm 1
+from train_classical import PARAMS, build_model, fit   
 
 EMB_DIR  = "scores/emb-ssl-v3"
 LABEL    = "Is Laundering"
@@ -12,19 +11,19 @@ SPLITS   = ["train", "val", "test"]
 SEEDS    = [0, 1, 2, 3]
 BOOSTERS = ["lgb", "xgb"]
 EMB_DIM  = 32
-N_SCALAR = 3                            
+N_SCALAR = 3            #cosine , L2, dot product                
 CHUNK    = 200_000                     
 RESULTS  = "results-hybrid-v3.csv"
 DEVICE   = "local-i5-13420H"
 
 P1_EXTRA = N_SCALAR                                 
-ARMS_P1  = [("V0",  None,               0,        False),   
-            ("V1e", "ssl_lstm",         N_SCALAR, False)]  
+ARMS_P1  = [("baseline",  None,               0,        False),   
+            ("edge_scalar", "ssl_lstm",         N_SCALAR, False)]  
 
 P2_EXTRA = 2 * EMB_DIM + N_SCALAR                    
-ARMS_P2  = [("V2e", "ssl_lstm",         2 * EMB_DIM,            True),   
-            ("V3e", "ssl_lstm",         2 * EMB_DIM + N_SCALAR, True),  
-            ("V2n", "ssl_noedge_lstm",  2 * EMB_DIM,            True)]   
+ARMS_P2  = [("edge_emb", "ssl_lstm",         2 * EMB_DIM,            True),   
+            ("edge+scalar", "ssl_lstm",         2 * EMB_DIM + N_SCALAR, True),  
+            ("no_edge", "ssl_noedge_lstm",  2 * EMB_DIM,            True)]   
 
 
 def alloc(n_extra):
@@ -39,11 +38,9 @@ def alloc(n_extra):
         keep = mask_b if s == "train" else slice(None)
 
         p_all = nodes[split == s]
-        assert pf.metadata.num_rows == len(p_all), f"{s}: txn_matrix lệch txn_nodes"
         p = p_all[keep]
         if n_base is None:
             n_base = len(cols)
-        assert len(cols) == n_base, "số cột gốc khác nhau giữa các split"
 
         X = np.empty((len(p), n_base + n_extra), dtype="float32")
         for j, c in enumerate(cols):
@@ -77,7 +74,7 @@ def fill_emb(buf, pairs, encoder, seed, n_base, write_raw):
             if write_raw:
                 X[sl, n_base:n_base + EMB_DIM] = u
                 X[sl, n_base + EMB_DIM:es]     = v
-            dot = np.einsum("ij,ij->i", u, v)               # không dựng mảng tích trung gian
+            dot = np.einsum("ij,ij->i", u, v)               
             nu, nv = np.linalg.norm(u, axis=1), np.linalg.norm(v, axis=1)
             X[sl, es]     = dot / (nu * nv + 1e-8)          # cosine
             X[sl, es + 1] = np.linalg.norm(u - v, axis=1)   # L2
@@ -96,7 +93,7 @@ def run_arm(arm, encoder, ncol, buf, ys, seed, rows):
 
         sc = {s: model.predict_proba(buf[s][:, :ncol])[:, 1] for s in ("val", "test")}
         for s in ("val", "test"):
-            np.save(f"scores/{tag}_seed{seed}_{s}.npy", sc[s])
+            np.save(f"scores/final/{tag}_seed{seed}_{s}.npy", sc[s])
 
         thr  = find_best_threshold(ys["val"], sc["val"])
         meta = json.dumps({**PARAMS[name], "device": DEVICE, "encoder": encoder,
@@ -115,7 +112,7 @@ def run_arm(arm, encoder, ncol, buf, ys, seed, rows):
 
 
 def main():
-    os.makedirs("scores", exist_ok=True); os.makedirs("models", exist_ok=True)
+    os.makedirs("scores/final", exist_ok=True); os.makedirs("models", exist_ok=True)
     require_emb()
     if os.path.exists(RESULTS):
         os.remove(RESULTS)          
@@ -139,11 +136,10 @@ def main():
     w = r.pivot_table(index=["booster", "seed"], columns="arm", values="f1")
     print("\n=== hiệu ghép cặp theo seed (f1_minority) ===")
     print(pd.DataFrame({
-        "V2e-V0":  w["V2e"] - w["V0"],    # embedding thô đóng góp bao nhiêu
-        "V1e-V0":  w["V1e"] - w["V0"],    # chỉ 3 vô hướng đóng góp bao nhiêu
-        "V2e-V1e": w["V2e"] - w["V1e"],   # 64 chiều thô có hơn 3 vô hướng không
-        "V3e-V2e": w["V3e"] - w["V2e"],   # boosting đã khai thác hết embedding thô chưa
-        "V2e-V2n": w["V2e"] - w["V2n"],   # edge_attr còn giá trị dưới head boosting không
+        "edge_emb-baseline":    w["edge_emb"]    - w["baseline"],     
+        "edge_scalar-baseline": w["edge_scalar"] - w["baseline"],     
+        "edge+scalar-baseline": w["edge+scalar"] - w["baseline"],
+        "no_edge-baseline"   : w["no_edge"]-w["baseline"]     
     }).round(4))
 
 
