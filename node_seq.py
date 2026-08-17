@@ -6,23 +6,53 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from feature_node import load_data
-from feature_edge import add_subsplit, WINDOWS
+from feature_edge import DELTA_H
 from paths import OUT_DIR, TXN_NODES
 
-BUCKET_H = 6            # độ mịn bucket (giờ)
-K = 4                   # giữ K bucket CUỐI của cửa sổ nguồn = 1 ngày, căn phải
+BUCKET_MIN = 90                   
+K = 4
 NS = 1_000_000_000
+BUCKET_NS = BUCKET_MIN * 60 * NS
 COLS = ["out_cnt", "out_sum", "out_nuniq", "in_cnt", "in_sum", "in_nuniq",
         "ratio_cross_bank", "ratio_cross_ccy"]
-LOG_IDX = [0, 1, 2, 3, 4, 5]                 
+LOG_IDX = [0, 1, 2, 3, 4, 5]
 NODE_SEQ = os.path.join(OUT_DIR, "node_seq_{}.npy")
+TRAIN_B_MASK = os.path.join(OUT_DIR, "train_b_mask.npy")
+
+WINDOWS = {
+    "train": (["train_a"],                    ["train_a", "train_b"]),
+    "val":   (["train_a", "train_b"],         ["train_a", "train_b", "val"]),
+    "test":  (["train_a", "train_b", "val"],  ["train_a", "train_b", "val", "test"]),
+}
+
+
+def add_subsplit(df):
+    df["win"] = df["split"]
+    tr = (df["split"] == "train").to_numpy()
+    ts_cut = df.loc[tr, "Timestamp"].min() + pd.Timedelta(hours=DELTA_H)
+
+    is_b = tr & (df["Timestamp"] >= ts_cut).to_numpy()
+    df.loc[is_b, "win"] = "train_b"
+    df.loc[tr & ~is_b, "win"] = "train_a"
+
+    a, b = df[df.win == "train_a"], df[df.win == "train_b"]
+    assert len(a) and len(b), "train_a hoặc train_b rỗng"
+    assert a["Timestamp"].max() < b["Timestamp"].min(), "train_a/train_b chồng lấn thời gian"
+    print(f"  cắt train tại {ts_cut} ({DELTA_H}h đầu) | train_a {len(a):,} dòng "
+          f"(pos {int(a['Is Laundering'].sum()):,}) | train_b {len(b):,} dòng "
+          f"(pos {int(b['Is Laundering'].sum()):,})")
+
+    mask = np.zeros(len(df), dtype=bool)
+    mask[df["ori_idx"].to_numpy()] = is_b
+    np.save(TRAIN_B_MASK, mask)
+    print(f"  đã lưu {TRAIN_B_MASK}")
+    return df
 
 
 def build_seq(df, src_splits, txn, n_node):
-    """Chuỗi hoạt động của từng node trên K bucket cuối của cửa sổ NGUỒN. Không đụng nhãn."""
     w = df[df["win"].isin(src_splits)]
-    b = w["time"].to_numpy() // (BUCKET_H * 3600 * NS)
-    pos = b - (b.max() - K + 1)                          
+    b = w["time"].to_numpy("int64") // BUCKET_NS
+    pos = b - (b.max() - K + 1)
     keep = pos >= 0
     w, pos = w[keep], pos[keep]
 
@@ -55,12 +85,10 @@ def build_seq(df, src_splits, txn, n_node):
 
 
 def verify(df, seqs, txn, n_node):
-    
     for name, target in [("train", "train_b"), ("val", "val")]:
         s2 = df.copy()
         m = (s2["win"] == target).to_numpy()
         rng = np.random.default_rng(0)
-        
         for col in ["Amount Paid", "Amount Received"]:
             s2.loc[m, col] = rng.permutation(s2.loc[m, col].to_numpy())
         ref = build_seq(s2, WINDOWS[name][0], txn, n_node)
@@ -68,7 +96,6 @@ def verify(df, seqs, txn, n_node):
         print(f"  PASS: node_seq {name} bất biến khi xáo dữ liệu {target}")
         del s2, ref; gc.collect()
 
-    
     for name, Z in seqs.items():
         act = (Z.reshape(n_node, -1) != 0).any(1).mean()
         print(f"  {name:5s}: {Z.shape} | node hoạt động {act*100:5.2f}%")
@@ -86,9 +113,10 @@ def scale(seqs):
 
 def main():
     df = add_subsplit(load_data())
-    txn = np.load(TXN_NODES)                             # (n_tx, 2) theo THỨ TỰ FILE GỐC
+    txn = np.load(TXN_NODES)                             
     n_node = int(txn.max()) + 1
-    print(f"{n_node:,} node | bucket {BUCKET_H}h | K={K} ({K*BUCKET_H/24:.1f} ngày cuối)")
+    print(f"{n_node:,} node | bucket {BUCKET_MIN} phút | K={K} "
+          f"({K*BUCKET_MIN/60:.1f}h cuối, khớp DELTA_H={DELTA_H}h)")
 
     seqs = {n: build_seq(df, w[0], txn, n_node) for n, w in WINDOWS.items()}
     verify(df, seqs, txn, n_node)

@@ -28,7 +28,6 @@ ARMS_P2  = [("V2e", "ssl_lstm",         2 * EMB_DIM,            True),
 
 
 def alloc(n_extra):
-    """Buffer [n, 90 + n_extra] cho từng split, đổ 90 cột gốc vào theo TỪNG CỘT."""
     split  = pd.read_parquet(TX_FEAT, columns=["split"])["split"].to_numpy()
     nodes  = np.load(TXN_NODES)                                  # [5_078_345, 2]
     mask_b = np.load(f"{OUT_DIR}/train_b_mask.npy")[split == "train"]
