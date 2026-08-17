@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style> body { margin: 0; } </style>
+</helmet>
+<div style="width:1700px;background:oklch(0.965 0.002 90);font-family:Helvetica,Arial,sans-serif;color:oklch(0.22 0.005 90);padding:48px 56px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;">
+
+  <div style="font-size:26px;font-weight:700;margin-bottom:18px;">Nhóm 3 — Đường đi khái quát: GraphSAGE-LSTM (tài khoản) → ghép embedding → XGBoost/LightGBM (giao dịch)</div>
+
+  <!-- ROW 1: sources + graph construction -->
+  <div style="display:flex;align-items:center;gap:28px;">
+
+    <!-- raw table -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="width:190px;border:1.5px solid oklch(0.3 0 0);border-radius:4px;overflow:hidden;background:white;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;background:oklch(0.55 0 0);">
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">Src</div>
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">Dst</div>
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">Time</div>
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">Amt</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;">
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A1</div><div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A2</div><div style="padding:5px 4px;font-size:10px;text-align:center;">1</div><div style="padding:5px 4px;font-size:10px;text-align:center;">100</div>
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A3</div><div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A4</div><div style="padding:5px 4px;font-size:10px;text-align:center;">2</div><div style="padding:5px 4px;font-size:10px;text-align:center;">20</div>
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A5</div><div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 150);">A6</div><div style="padding:5px 4px;font-size:10px;text-align:center;">3</div><div style="padding:5px 4px;font-size:10px;text-align:center;">50</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:oklch(0.45 0.01 90);">Giao dịch thô</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <div style="width:26px;height:26px;border-radius:50%;border:2px solid oklch(0.5 0.13 250);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:oklch(0.5 0.13 250);background:white;">1</div>
+      <div style="font-size:11px;color:oklch(0.45 0.01 90);">Transform</div>
+      <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+    </div>
+
+    <!-- graph icon -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <svg width="150" height="130" viewBox="0 0 150 130">
+        <g stroke="oklch(0.3 0 0)" stroke-width="1.3" fill="none">
+          <line x1="30" y1="30" x2="75" y2="15"></line>
+          <line x1="30" y1="30" x2="20" y2="80"></line>
+          <line x1="75" y1="15" x2="120" y2="30"></line>
+          <line x1="75" y1="15" x2="75" y2="65"></line>
+          <line x1="120" y1="30" x2="130" y2="80"></line>
+          <line x1="20" y1="80" x2="75" y2="65"></line>
+          <line x1="75" y1="65" x2="130" y2="80"></line>
+          <line x1="20" y1="80" x2="55" y2="115"></line>
+          <line x1="75" y1="65" x2="55" y2="115"></line>
+          <line x1="75" y1="65" x2="100" y2="115"></line>
+          <line x1="130" y1="80" x2="100" y2="115"></line>
+        </g>
+        <g fill="white" stroke="oklch(0.3 0 0)" stroke-width="1.5">
+          <circle cx="30" cy="30" r="7"></circle>
+          <circle cx="75" cy="15" r="7"></circle>
+          <circle cx="120" cy="30" r="7"></circle>
+          <circle cx="20" cy="80" r="7"></circle>
+          <circle cx="75" cy="65" r="7"></circle>
+          <circle cx="130" cy="80" r="7"></circle>
+          <circle cx="55" cy="115" r="7"></circle>
+          <circle cx="100" cy="115" r="7"></circle>
+        </g>
+      </svg>
+      <div style="font-size:12px;color:oklch(0.45 0.01 90);">Graph tài khoản (515K node, cạnh gộp)</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;margin-left:8px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.55 0.1 150);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.55 0.1 150);background:white;">2</div>
+      <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+    </div>
+
+    <!-- encoder box -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="width:170px;padding:14px 12px;border:1.5px solid oklch(0.55 0.1 150);border-radius:6px;background:oklch(0.94 0.05 150);text-align:center;">
+        <div style="font-size:13px;font-weight:700;color:oklch(0.4 0.1 150);">GraphSAGE + LSTM</div>
+        <div style="font-size:11px;color:oklch(0.4 0.01 90);margin-top:4px;">message passing · edge_attr lagged</div>
+      </div>
+      <div style="font-size:11px;color:oklch(0.45 0.01 90);">encoder, OFFLINE (GPU)</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.55 0.13 300);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.55 0.13 300);background:white;">3</div>
+      <div style="display:flex;align-items:center;width:40px;margin-top:8px;">
+        <div style="flex:1;height:0;border-top:2px dashed oklch(0.5 0.01 90);"></div>
+        <div style="font-size:14px;color:oklch(0.5 0.01 90);margin-left:-2px;">▸</div>
+      </div>
+    </div>
+
+    <!-- embedding table -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="width:180px;border:1.5px solid oklch(0.55 0.13 300);border-radius:4px;overflow:hidden;background:white;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:oklch(0.55 0.13 300);">
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">acct</div>
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">emb[0:32]</div>
+          <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">…</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 300);">A1</div><div style="padding:5px 4px;font-size:10px;text-align:center;">0.12…</div><div style="padding:5px 4px;font-size:10px;text-align:center;">…</div>
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 300);">A2</div><div style="padding:5px 4px;font-size:10px;text-align:center;">-0.4…</div><div style="padding:5px 4px;font-size:10px;text-align:center;">…</div>
+          <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.94 0.03 300);">A3</div><div style="padding:5px 4px;font-size:10px;text-align:center;">0.07…</div><div style="padding:5px 4px;font-size:10px;text-align:center;">…</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:oklch(0.45 0.01 90);">Embedding tài khoản (32-dim)</div>
+    </div>
+  </div>
+
+  <!-- branch: as-of / txn feature directly from raw table -->
+  <div style="display:flex;align-items:center;gap:28px;margin-left:2px;">
+    <div style="width:190px;display:flex;flex-direction:column;align-items:center;gap:0;">
+      <div style="width:0;height:22px;border-left:2px dashed oklch(0.5 0.01 90);"></div>
+      <div style="font-size:16px;color:oklch(0.5 0.01 90);line-height:1;margin-top:-4px;">▾</div>
+      <div style="font-size:10px;color:oklch(0.45 0.01 90);margin-top:2px;">từ giao dịch thô</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.6 0.1 80);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.6 0.1 80);background:white;">4</div>
+      <div style="font-size:11px;color:oklch(0.45 0.01 90);">as-of · causal</div>
+    </div>
+    <div style="width:170px;padding:12px;border:1.5px solid oklch(0.6 0.1 80);border-radius:6px;background:oklch(0.95 0.04 80);text-align:center;">
+      <div style="font-size:13px;font-weight:700;color:oklch(0.45 0.1 80);">Txn feature + as-of aggregate</div>
+    </div>
+    <div style="display:flex;align-items:center;width:40px;">
+      <div style="flex:1;height:0;border-top:2px dashed oklch(0.5 0.01 90);"></div>
+      <div style="font-size:14px;color:oklch(0.5 0.01 90);margin-left:-2px;">▸</div>
+    </div>
+    <div style="width:180px;border:1.5px solid oklch(0.6 0.1 80);border-radius:4px;overflow:hidden;background:white;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:oklch(0.6 0.1 80);">
+        <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">tx</div>
+        <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">feat[0:90]</div>
+        <div style="padding:5px 4px;font-size:10px;color:white;text-align:center;font-weight:600;">…</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+        <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.95 0.03 80);">t1</div><div style="padding:5px 4px;font-size:10px;text-align:center;">0.55…</div><div style="padding:5px 4px;font-size:10px;text-align:center;">…</div>
+        <div style="padding:5px 4px;font-size:10px;text-align:center;background:oklch(0.95 0.03 80);">t2</div><div style="padding:5px 4px;font-size:10px;text-align:center;">1.02…</div><div style="padding:5px 4px;font-size:10px;text-align:center;">…</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:oklch(0.45 0.01 90);align-self:center;">90 cột / giao dịch</div>
+  </div>
+
+  <div style="height:36px;"></div><div style="display:flex;align-items:center;gap:22px;flex-wrap:nowrap;">
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div style="width:100px;height:36px;border:1.5px solid oklch(0.55 0.13 300);border-radius:4px;background:oklch(0.94 0.05 300);font-size:10px;text-align:center;display:flex;align-items:center;justify-content:center;">emb_src/dst</div>
+      <div style="width:100px;height:36px;border:1.5px solid oklch(0.55 0.1 150);border-radius:4px;background:oklch(0.94 0.05 150);font-size:10px;text-align:center;display:flex;align-items:center;justify-content:center;">edge_attr</div>
+      <div style="width:100px;height:36px;border:1.5px solid oklch(0.6 0.1 80);border-radius:4px;background:oklch(0.95 0.04 80);font-size:10px;text-align:center;display:flex;align-items:center;justify-content:center;">txn+as-of</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.5 0.13 250);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.5 0.13 250);background:white;">5</div>
+      <div style="width:52px;height:52px;position:relative;">
+        <div style="width:34px;height:34px;border-radius:50%;background:oklch(0.55 0.13 300 / 0.5);position:absolute;left:2px;top:9px;"></div>
+        <div style="width:34px;height:34px;border-radius:50%;background:oklch(0.6 0.1 80 / 0.5);position:absolute;left:18px;top:9px;"></div>
+      </div>
+      <div style="font-size:10px;color:oklch(0.45 0.01 90);">outer join</div>
+    </div>
+
+    <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+
+    <div style="width:130px;border:1.5px solid oklch(0.3 0 0);border-radius:4px;overflow:hidden;">
+      <div style="height:14px;background:oklch(0.55 0.13 300);"></div>
+      <div style="height:14px;background:oklch(0.55 0.1 150);"></div>
+      <div style="height:14px;background:oklch(0.6 0.1 80);"></div>
+      <div style="font-size:9px;text-align:center;padding:3px;background:white;">157 cột ghép</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.5 0.13 150);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.5 0.13 150);background:white;">6</div>
+      <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="width:120px;padding:8px;border:1.5px solid oklch(0.5 0.13 150);border-radius:6px;background:oklch(0.94 0.06 150);text-align:center;font-size:10.5px;font-weight:600;color:oklch(0.35 0.13 150);">cosine · L2 · dot</div>
+      <div style="font-size:10px;color:oklch(0.45 0.01 90);">Scoring</div>
+    </div>
+
+    <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+
+    <div style="width:90px;border:1.5px solid oklch(0.5 0.13 150);border-radius:4px;overflow:hidden;background:white;text-align:center;">
+      <div style="height:14px;background:oklch(0.5 0.13 150);"></div>
+      <div style="font-size:9px;padding:4px;">3 vô hướng</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.5 0.13 250);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.5 0.13 250);background:white;">7</div>
+      <div style="width:40px;height:40px;position:relative;">
+        <div style="width:26px;height:26px;border-radius:50%;background:oklch(0.4 0.02 90 / 0.5);position:absolute;left:1px;top:7px;"></div>
+        <div style="width:26px;height:26px;border-radius:50%;background:oklch(0.5 0.13 150 / 0.5);position:absolute;left:13px;top:7px;"></div>
+      </div>
+    </div>
+
+    <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+
+    <div style="width:140px;border:1.5px solid oklch(0.22 0.005 90);border-radius:4px;overflow:hidden;">
+      <div style="height:12px;background:oklch(0.55 0.13 300);"></div>
+      <div style="height:12px;background:oklch(0.55 0.1 150);"></div>
+      <div style="height:12px;background:oklch(0.6 0.1 80);"></div>
+      <div style="height:12px;background:oklch(0.5 0.13 150);"></div>
+      <div style="font-size:9px;text-align:center;padding:3px;background:white;">ma trận cuối (train_b)</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.5 0.1 80);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.5 0.1 80);background:white;">8</div>
+      <div style="font-size:10px;color:oklch(0.45 0.01 90);">split train_b</div>
+      <div style="font-size:20px;color:oklch(0.5 0.01 90);">→</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div style="width:24px;height:24px;border-radius:50%;border:2px solid oklch(0.5 0.13 250);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:oklch(0.5 0.13 250);background:white;">9</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="width:170px;padding:14px 10px;border:1.5px solid oklch(0.22 0.005 90);border-radius:6px;background:oklch(0.22 0.005 90);text-align:center;">
+        <div style="font-size:13px;font-weight:700;color:white;">Train Model</div>
+        <div style="font-size:11px;color:oklch(0.85 0.005 90);margin-top:3px;">XGBoost / LightGBM</div>
+      </div>
+      <div style="font-size:11px;color:oklch(0.45 0.01 90);">ONLINE inference, CPU</div>
+    </div>
+  </div>
+
+  <!-- ROW 2: converge, score, join, train -->
+  
+
+</div>
+
+</x-dc>
+</body>
+</html>

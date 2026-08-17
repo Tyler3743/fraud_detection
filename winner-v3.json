@@ -1,0 +1,18 @@
+{
+  "winner": "sage_noedge_lstm",
+  "variants": [
+    "sage_lstm",
+    "sage_noedge_lstm"
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "select_on": "val/pr_auc",
+  "select_scores": {
+    "sage_lstm": 0.3969,
+    "sage_noedge_lstm": 0.4011
+  }
+}

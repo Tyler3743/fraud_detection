@@ -17,7 +17,6 @@ def load_data():
     df["time"]=df["Timestamp"].astype("int64")
     df["is_cross_bank"]=df["From Bank"]!=df["To Bank"]
     df["is_cross_curcy"]=df["Payment Currency"]!=df["Receiving Currency"]
-    # df["is_round"]=df["Amount Paid"]%1000==0
     return df
 
 def asof_block(df, group_cols, amt_col, partner_col, bank_col, curcy_col,pf_encoding,prefix,log_col_out):

@@ -19,10 +19,8 @@ ts2=df_trans["Timestamp"].iloc[t2]
 df_trans["split"]="test"
 df_trans.loc[df_trans["Timestamp"]<ts2,"split"]="val"
 df_trans.loc[df_trans["Timestamp"]<ts1,"split"]="train"
-assert df_trans[df_trans.split == "train"]["Timestamp"].max() < df_trans[df_trans.split == "val"]["Timestamp"].min(), \
-    "Leakage: Timestamp chong lan giua train va val"
-assert df_trans[df_trans.split == "val"]["Timestamp"].max() < df_trans[df_trans.split == "test"]["Timestamp"].min(), \
-    "Leakage: Timestamp chong lan giua val va test"
+assert df_trans[df_trans.split == "train"]["Timestamp"].max() < df_trans[df_trans.split == "val"]["Timestamp"].min()
+assert df_trans[df_trans.split == "val"]["Timestamp"].max() < df_trans[df_trans.split == "test"]["Timestamp"].min()
 
 # xuất file csv
 df_trans.to_csv("dataset_high/HI-Small_Trans_split_index.csv", index=False)

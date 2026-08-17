@@ -23,14 +23,14 @@ SEEDS = [0, 1, 2, 3]
 FIG_DIR = "figures"
 
 PARAMS = {
-    "rf": {                          # cell I1/I2 -> tune_rf.csv, quy tac 1-SE
+    "rf": {                         
         "n_estimators": 300,
-        "min_samples_leaf": 5,     # <- dan tu cell I2
-        "max_features": 0.3,         # <- dan tu cell I2
+        "min_samples_leaf": 5,    
+        "max_features": 0.3,         
         "class_weight": "balanced",
         "n_jobs": -1,
     },
-    "xgb": {                         # dựa theo cell D/E/F -> tune_xgb_confirm.csv
+    "xgb": {                        
         "max_depth": 13,
         "learning_rate": 0.0435,
         "reg_lambda": 0.02,

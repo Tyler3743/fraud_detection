@@ -6,25 +6,25 @@ from paths import TX_FEAT, TXN_NODES, TXN_MATRIX, OUT_DIR
 from metrics import find_best_threshold, evaluate, log_result
 from train_classical import PARAMS, build_model, fit   # tái dùng siêu tham số + early-stopping nhóm 1
 
-EMB_DIR  = "scores/emb-ssl"
+EMB_DIR  = "scores/emb-ssl-v3"
 LABEL    = "Is Laundering"
 SPLITS   = ["train", "val", "test"]
 SEEDS    = [0, 1, 2, 3]
 BOOSTERS = ["lgb", "xgb"]
 EMB_DIM  = 32
-N_SCALAR = 3                            # cosine, L2, dot
-CHUNK    = 200_000                      # số dòng mỗi lô khi tập hợp embedding
+N_SCALAR = 3                            
+CHUNK    = 200_000                     
 RESULTS  = "results-hybrid-v3.csv"
 DEVICE   = "local-i5-13420H"
 
-P1_EXTRA = N_SCALAR                                  # buffer pha 1: 90 + 3  = 93
-ARMS_P1  = [("V0",  None,               0,        False),   # 90
-            ("V1e", "ssl_lstm",         N_SCALAR, False)]   # 93
+P1_EXTRA = N_SCALAR                                 
+ARMS_P1  = [("V0",  None,               0,        False),   
+            ("V1e", "ssl_lstm",         N_SCALAR, False)]  
 
-P2_EXTRA = 2 * EMB_DIM + N_SCALAR                    # buffer pha 2: 90 + 67 = 157
-ARMS_P2  = [("V2e", "ssl_lstm",         2 * EMB_DIM,            True),   # 154
-            ("V3e", "ssl_lstm",         2 * EMB_DIM + N_SCALAR, True),   # 157
-            ("V2n", "ssl_noedge_lstm",  2 * EMB_DIM,            True)]   # 154
+P2_EXTRA = 2 * EMB_DIM + N_SCALAR                    
+ARMS_P2  = [("V2e", "ssl_lstm",         2 * EMB_DIM,            True),   
+            ("V3e", "ssl_lstm",         2 * EMB_DIM + N_SCALAR, True),  
+            ("V2n", "ssl_noedge_lstm",  2 * EMB_DIM,            True)]   
 
 
 def alloc(n_extra):
@@ -59,18 +59,14 @@ def alloc(n_extra):
 
 
 def require_emb():
-    """Kiểm tra đủ 24 file embedding TRƯỚC khi nạp 5 GB buffer, thay vì chết giữa chừng."""
     need = [f"{EMB_DIR}/emb_{e}_seed{s}_{sp}.npy"
             for e in {a[1] for a in ARMS_P1 + ARMS_P2 if a[1]} for s in SEEDS for sp in SPLITS]
     miss = [p for p in need if not os.path.exists(p)]
-    assert not miss, (f"thiếu {len(miss)}/{len(need)} file embedding, ví dụ {miss[0]}\n"
-                      f"-> giải nén emb-ssl-v3.zip vào {EMB_DIR}/ rồi chạy check_emb_leak.py")
+    assert not miss, (f"thiếu {len(miss)}/{len(need)} file embedding")
     print(f"embedding: đủ {len(need)} file trong {EMB_DIR}")
 
 
 def fill_emb(buf, pairs, encoder, seed, n_base, write_raw):
-    """write_raw=True : ghi [n_base : +64] = emb_src‖emb_dst, rồi [+64 : +67] = 3 vô hướng.
-       write_raw=False: chỉ ghi [n_base : +3] = 3 vô hướng (nhánh V1e)."""
     es = n_base + (2 * EMB_DIM if write_raw else 0)      # vị trí khối 3 vô hướng
     for s in SPLITS:
         h = np.load(f"{EMB_DIR}/emb_{encoder}_seed{seed}_{s}.npy")

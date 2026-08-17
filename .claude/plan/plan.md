@@ -7,6 +7,8 @@ folder extraqt-main là folder tải về từ bài báo exraqt có trong folder
 làm là phải tuân thủ cách chia, train trên quy chuẩn chung trong giới data science nếu không biết train/ split như thế nào
 phải xem cách các bài báo làm không được chia bậy
 
+pipeline: nhóm 1 (train_classical)+ nhóm 2(train-gnn-lstm-v3) -> kết quả train-hybrid
+
 ## 1. Tổng quan
 
 **Đề tài (tạm):** Hệ thống phát hiện gian lận giao dịch tài chính thời gian thực (có thể sử dụng classifier hoặc graphsage+classfier)

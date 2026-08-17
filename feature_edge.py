@@ -9,13 +9,12 @@ from paths import EDGE_ATTR, OUT_DIR
 EDGE_RANK_COLS = [
     "num_tx", "total_paid", "mean_paid", "std_paid",
     "min_paid", "max_paid", "active_hour", "tx_per_hour",
+    "port_out", "port_in",
 ]
 
-TRAIN_A_FRAC = 0.5                                      # phần đầu train -> CHỈ để tính feature
+TRAIN_A_FRAC = 0.5                                      
 TRAIN_B_MASK = os.path.join(OUT_DIR, "train_b_mask.npy")
 
-# name -> (cửa sổ tính FEATURE = lagged, cửa sổ định nghĩa TẬP CẠNH = lũy tiến Altman)
-# Bất biến: cửa sổ feature luôn nằm HOÀN TOÀN TRƯỚC cửa sổ chứa nhãn được train/eval.
 WINDOWS = {
     "train": (["train_a"],                    ["train_a", "train_b"]),
     "val":   (["train_a", "train_b"],         ["train_a", "train_b", "val"]),
@@ -47,7 +46,6 @@ def add_subsplit(df):
     print(f"  đã lưu {TRAIN_B_MASK}")
     return df
 
-
 def aggregate_edges(win: pd.DataFrame, formats, currencies):
     """Thống kê cạnh gộp trên cửa sổ NGUỒN. Không đụng tới 'Is Laundering'."""
     g = win.groupby(["src", "dest"], sort=False)
@@ -62,13 +60,18 @@ def aggregate_edges(win: pd.DataFrame, formats, currencies):
         time_min        = ("Timestamp", "min"),
         time_max        = ("Timestamp", "max"),
     )
-    agg["std_paid"] = agg["std_paid"].fillna(0.0)          # cạnh 1-tx: ddof=1 -> NaN
-    # Đơn vị GIỜ chứ không phải .dt.days: cửa sổ train_a chỉ dài 1.53 ngày nên
-    # .dt.days luôn ra 1 -> active_day là hằng số và tx_per_day trùng khít num_tx
-    # (r = 1.0000). Tới test hai cột tách ra, phần trọng số vô định thành nhiễu.
+    agg["std_paid"] = agg["std_paid"].fillna(0.0)         
     span_h = (agg["time_max"] - agg["time_min"]).dt.total_seconds() / 3600.0
     agg["active_hour"] = span_h.clip(lower=1.0)
     agg["tx_per_hour"] = agg["num_tx"] / agg["active_hour"]
+
+    # Đánh số cổng theo mốc thời gian (Multi-GNN mục 4.2): mọi cạnh tới cùng một láng
+    # giềng nhận cùng số cổng; thứ tự do timestamp SỚM NHẤT của cặp quyết định. Tính
+    # trên cửa sổ NGUỒN nên vẫn trễ pha, không đụng dữ liệu của kỳ được gán nhãn.
+    tmin = agg["time_min"].astype("int64")
+    agg["port_out"] = tmin.groupby(level="src").rank(method="first")
+    agg["port_in"] = tmin.groupby(level="dest").rank(method="first")
+
     agg = agg.drop(columns=["time_min", "time_max"])
 
     keys = [win["src"], win["dest"]]
@@ -82,8 +85,8 @@ def aggregate_edges(win: pd.DataFrame, formats, currencies):
 
 
 def build_window(df, src_splits, graph_splits, formats, currencies):
-    s_window = df[df["win"].isin(src_splits)]      # thống kê hành vi cạnh (lagged)
-    g_window = df[df["win"].isin(graph_splits)]    # tập cạnh, lũy tiến
+    s_window = df[df["win"].isin(src_splits)]      
+    g_window = df[df["win"].isin(graph_splits)]    
     edges = g_window.groupby(["src", "dest"], sort=False).agg(
         is_cross_bank = ("is_cross_bank", "max"),
         is_self_loop  = ("is_self_loop",  "max"),
@@ -99,11 +102,10 @@ def build_window(df, src_splits, graph_splits, formats, currencies):
 def rank_edges(feats, cols):
     for name, f in feats.items():
         r = f[cols].astype("float64")
-        r[f["seen_before"] == 0] = np.nan        # loại khỏi bảng xếp hạng
-        f[cols] = r.rank(pct=True).fillna(0.0)   # na_option='keep': NaN không được xếp
+        r[f["seen_before"] == 0] = np.nan       
+        f[cols] = r.rank(pct=True).fillna(0.0)  
         feats[name] = f
     return feats
-
 
 def verify(df, feats, formats, currencies):
     # 1. không có cột nào suy từ nhãn
@@ -111,9 +113,6 @@ def verify(df, feats, formats, currencies):
     for name, f in feats.items():
         assert not (banned & set(f.columns)), f"{name} còn cột suy từ nhãn"
 
-    # 2. edge_attr chỉ phụ thuộc cửa sổ TRƯỚC nó: xáo Amount Paid trong cửa sổ nhãn
-    #    -> bảng phải bất biến. Dòng 'train' là kiểm tra MỚI, chính là chỗ trước đây bị
-    #    tự tham chiếu (WINDOWS['train'] cũ = (['train'], ['train'])).
     for name, target in [("train", "train_b"), ("val", "val")]:
         shuffled = df.copy()
         m = shuffled["win"] == target
@@ -127,7 +126,6 @@ def verify(df, feats, formats, currencies):
         del shuffled, ref
         gc.collect()
 
-    # 3. cold-start: tỉ lệ cạnh chưa từng thấy trong cửa sổ nguồn
     for name, f in feats.items():
         r = 1 - f["seen_before"].mean()
         print(f"  {name:5s}: {len(f):>9,} cạnh | cold-start {r*100:5.2f}%")
