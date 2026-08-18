@@ -1,4 +1,3 @@
-import time
 import joblib
 import numpy as np
 import pandas as pd
@@ -6,6 +5,8 @@ import shap
 import streamlit as st
 import paths
 from metrics import find_best_threshold
+import networkx as nx
+import matplotlib.pyplot as plt
 
 MODEL_PATH = "models/baseline_lgb_seed0.joblib"
 RAW_CSV = f"{paths.RAW_DIR}/HI-Small_Trans_split_index.csv"
@@ -43,6 +44,38 @@ PATTERN_EXPLAIN = {
                        "với gather-scatter. Chia nhỏ số tiền lớn để né ngưỡng báo cáo rồi tái hợp nó ở "
                        "nơi khác.",
 }
+
+def draw_fraud_network(row_raw, related, picked_row_id):
+    """Vẽ mạng lưới tài khoản trong cùng chuỗi rửa tiền, tô đậm giao dịch đang xem."""
+    txns = pd.concat([related, row_raw.to_frame().T], ignore_index=True)
+    txns["src"] = txns["From Bank"] + "|" + txns["Account"]
+    txns["dest"] = txns["To Bank"] + "|" + txns["Account.1"]
+
+    G = nx.DiGraph()
+    edge_labels = {}
+    for _, r in txns.iterrows():
+        u, v = r["src"], r["dest"]
+        G.add_edge(u, v)
+        lbl = str(r["row_id"])
+        edge_labels[(u, v)] = (edge_labels.get((u, v), "") + ", " + lbl).strip(", ")
+
+    picked_src = row_raw["From Bank"] + "|" + row_raw["Account"]
+    picked_dest = row_raw["To Bank"] + "|" + row_raw["Account.1"]
+
+    pos = nx.spring_layout(G, seed=0, k=1.2)
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    node_colors = ["#ffa94d" if n in (picked_src, picked_dest) else "#74c0fc" for n in G.nodes()]
+    edge_colors = ["red" if (u, v) == (picked_src, picked_dest) else "gray" for u, v in G.edges()]
+    edge_widths = [2.5 if (u, v) == (picked_src, picked_dest) else 1.2 for u, v in G.edges()]
+
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=800, ax=ax)
+    nx.draw_networkx_labels(G, pos, font_size=7, ax=ax)
+    nx.draw_networkx_edges(G, pos, edge_color=edge_colors, width=edge_widths,
+                            arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.1", ax=ax)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6, ax=ax)
+    ax.set_axis_off()
+    return fig
 
 st.set_page_config(page_title="Fraud detection", layout="wide")
 
@@ -103,14 +136,16 @@ def load_patterns():
     return pat[PATTERN_KEY + ["pattern", "description", "attempt_id"]]
 
 
-@st.cache_data
-def load_test_with_scores(_model):
+def _load_test_with_scores_impl(_model):
     X, y = load_feature_matrix("test")
     score = _model.predict_proba(X)[:, 1]
 
-    dt = {"From Bank": str, "Account": str, "To Bank": str, "Account.1": str, "split": str}
-    raw = pd.read_csv(RAW_CSV, dtype=dt, usecols=DISPLAY_COLS + ["split"])
-    raw = raw[raw["split"] == "test"].reset_index(drop=True)
+    dt = {"From Bank": str, "Account": str, "To Bank": str, "Account.1": str,
+          "Payment Currency": "category", "Payment Format": "category", "split": "category"}
+    test_chunks = [chunk[chunk["split"] == "test"]
+                   for chunk in pd.read_csv(RAW_CSV, dtype=dt, usecols=DISPLAY_COLS + ["split"],
+                                             chunksize=500_000)]
+    raw = pd.concat(test_chunks, ignore_index=True)
     assert len(raw) == len(X), f"lệch dòng: csv test {len(raw)} vs txn_matrix test {len(X)}"
     assert (raw["Is Laundering"].to_numpy() == y).all(), "lệch nhãn giữa csv và txn_matrix -> thứ tự dòng không khớp"
 
@@ -126,6 +161,14 @@ def load_test_with_scores(_model):
                         + " -> " + raw["To Bank"] + "|" + raw["Account.1"])
     raw = raw.sort_values("Timestamp").reset_index(drop=True)
     return raw, X
+
+
+def load_test_with_scores(_model):
+    # session_state thay vì @st.cache_data: cache_data pickle toàn bộ (raw, X) mỗi lần ghi/đọc
+    # cache, tốn gấp đôi RAM tức thời (bản gốc + bản serialize) -> MemoryError trên máy ít RAM.
+    if "raw_df" not in st.session_state:
+        st.session_state.raw_df, st.session_state.X_df = _load_test_with_scores_impl(_model)
+    return st.session_state.raw_df, st.session_state.X_df
 
 
 @st.cache_data
@@ -150,26 +193,26 @@ st.caption(f"Model: baseline_lgb_seed0 (nhóm 1, LightGBM, 90 đặc trưng) | "
 if "pos" not in st.session_state:
     st.session_state.pos = 0
 
-alert_filter = st.selectbox("Lọc theo cảnh báo", ["Tất cả", "GIAN LẬN", "bình thường"])
+fc1, fc2 = st.columns(2)
+with fc1:
+    alert_filter = st.selectbox("Lọc theo cảnh báo", ["Tất cả", "GIAN LẬN", "bình thường"])
+with fc2:
+    pattern_filter = st.selectbox("Lọc theo pattern", ["Tất cả"] + list(PATTERN_EXPLAIN.keys()))
 
 raw_view = raw
 if alert_filter != "Tất cả":
     raw_view = raw_view[raw_view["cảnh báo"] == alert_filter]
+if pattern_filter != "Tất cả":
+    raw_view = raw_view[raw_view["pattern"] == pattern_filter]
 raw_view = raw_view.reset_index(drop=True)
 
 max_pos = max(len(raw_view) - WINDOW, 0)
 if st.session_state.pos > max_pos:
     st.session_state.pos = 0
 
-c1, c2, c3 = st.columns([2, 1, 1])
-with c1:
-    pos = st.slider("Vị trí trong dòng thời gian (theo Timestamp)", 0,
-                     max_pos, st.session_state.pos, step=WINDOW)
-    st.session_state.pos = pos
-with c2:
-    autoplay = st.checkbox("▶ Tự động phát (giả lập real-time)")
-with c3:
-    speed = st.select_slider("Tốc độ (giây/lần)", options=[0.2, 0.5, 1.0, 2.0], value=0.5)
+pos = st.slider("Vị trí trong dòng thời gian (theo Timestamp)", 0,
+                 max_pos, st.session_state.pos, step=WINDOW)
+st.session_state.pos = pos
 
 window = raw_view.iloc[pos:pos + WINDOW].copy()
 
@@ -212,11 +255,36 @@ if st.button("Xem chi tiết") and picked is not None:
                          "Amount Paid", "Payment Currency", "score", "cảnh báo", "src_dest"]],
                 use_container_width=True,
             )
+            st.write("**Sơ đồ mạng lưới giao dịch trong chuỗi rửa tiền này "
+                     "(mũi tên = dòng tiền, số cạnh = row_id ở cột bên trái bảng trên):**")
+            fig = draw_fraud_network(row_raw, related, picked)
+            st.pyplot(fig)
         else:
             st.caption("Không tìm thấy giao dịch liên quan nào khác trong tập test (attempt chỉ có "
                        "1 giao dịch trong test, hoặc phần còn lại nằm ở tập train/val).")
     else:
         st.caption("Giao dịch này không thuộc pattern rửa tiền nào đã biết trong dataset.")
+
+        sender_bank, sender_acc = row_raw["From Bank"], row_raw["Account"]
+        receiver_bank, receiver_acc = row_raw["To Bank"], row_raw["Account.1"]
+        involves_accounts = (
+            ((raw["From Bank"] == sender_bank) & (raw["Account"] == sender_acc))
+            | ((raw["To Bank"] == sender_bank) & (raw["Account.1"] == sender_acc))
+            | ((raw["From Bank"] == receiver_bank) & (raw["Account"] == receiver_acc))
+            | ((raw["To Bank"] == receiver_bank) & (raw["Account.1"] == receiver_acc))
+        )
+        related = raw[involves_accounts & (raw["row_id"] != picked)]
+        if len(related):
+            st.write(f"**{len(related)} giao dịch khác trong tập test liên quan tới cùng tài khoản "
+                     f"gửi/nhận:**")
+            st.dataframe(
+                related[["Timestamp", "From Bank", "Account", "To Bank", "Account.1",
+                         "Amount Paid", "Payment Currency", "score", "cảnh báo", "src_dest"]],
+                use_container_width=True,
+            )
+        else:
+            st.caption("Không tìm thấy giao dịch nào khác trong tập test liên quan tới tài khoản "
+                       "gửi/nhận này.")
 
     sv = explainer.shap_values(row_x)[0]
     order = np.argsort(-np.abs(sv))[:10]
@@ -229,21 +297,10 @@ if st.button("Xem chi tiết") and picked is not None:
         "TB nhóm gian lận (test)": [gmeans.loc[1, c] if c in gmeans.columns else np.nan for c in top_cols],
         "TB nhóm bình thường (test)": [gmeans.loc[0, c] if c in gmeans.columns else np.nan for c in top_cols],
     })
-    st.write("**10 đặc trưng ảnh hưởng nhiều nhất đến điểm số của đúng giao dịch này** "
-             "(SHAP dương = đẩy điểm về phía gian lận):")
+    st.write("**10 đặc trưng ảnh hưởng nhiều nhất đến điểm số của giao dịch này**")
     st.dataframe(imp_df.style.format({
         "đóng góp SHAP (đẩy về gian lận nếu dương)": "{:+.4f}",
         "giá trị giao dịch này": "{:.3f}",
         "TB nhóm gian lận (test)": "{:.3f}",
         "TB nhóm bình thường (test)": "{:.3f}",
     }), use_container_width=True)
-
-    st.write("**Biểu đồ biểu thị độ quan trọng của đặc trưng")
-    gain = model.booster_.feature_importance(importance_type="gain")
-    gdf = pd.DataFrame({"đặc trưng": X.columns, "gain": gain}).sort_values("gain", ascending=False).head(15)
-    st.bar_chart(gdf.set_index("đặc trưng"))
-
-if autoplay:
-    time.sleep(speed)
-    st.session_state.pos = min(st.session_state.pos + WINDOW, max_pos)
-    st.rerun()
