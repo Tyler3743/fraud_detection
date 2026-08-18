@@ -1,0 +1,9 @@
+model,seed,link_ap,steps_run,train_time_s
+ssl_lstm,0,0.9407,400,118.7
+ssl_lstm,1,0.9429,500,147.3
+ssl_lstm,2,0.9383,580,171.2
+ssl_lstm,3,0.9404,420,123.9
+ssl_noedge_lstm,0,0.9286,540,137.3
+ssl_noedge_lstm,1,0.9282,580,146.6
+ssl_noedge_lstm,2,0.9256,600,152.2
+ssl_noedge_lstm,3,0.9276,520,131.8
