@@ -5,8 +5,7 @@ import shap
 import streamlit as st
 import paths
 from metrics import find_best_threshold
-import networkx as nx
-import matplotlib.pyplot as plt
+from pyvis.network import Network
 
 MODEL_PATH = "models/baseline_lgb_seed0.joblib"
 RAW_CSV = f"{paths.RAW_DIR}/HI-Small_Trans_split_index.csv"
@@ -45,37 +44,43 @@ PATTERN_EXPLAIN = {
                        "nơi khác.",
 }
 
-def draw_fraud_network(row_raw, related, picked_row_id):
-    """Vẽ mạng lưới tài khoản trong cùng chuỗi rửa tiền, tô đậm giao dịch đang xem."""
+def draw_fraud_network_interactive(row_raw, related, picked_row_id):
+    """Vẽ mạng lưới tài khoản trong cùng chuỗi rửa tiền (kéo thả, zoom được), tô đậm giao dịch đang xem."""
     txns = pd.concat([related, row_raw.to_frame().T], ignore_index=True)
     txns["src"] = txns["From Bank"] + "|" + txns["Account"]
     txns["dest"] = txns["To Bank"] + "|" + txns["Account.1"]
 
-    G = nx.DiGraph()
-    edge_labels = {}
-    for _, r in txns.iterrows():
-        u, v = r["src"], r["dest"]
-        G.add_edge(u, v)
-        lbl = str(r["row_id"])
-        edge_labels[(u, v)] = (edge_labels.get((u, v), "") + ", " + lbl).strip(", ")
-
     picked_src = row_raw["From Bank"] + "|" + row_raw["Account"]
     picked_dest = row_raw["To Bank"] + "|" + row_raw["Account.1"]
 
-    pos = nx.spring_layout(G, seed=0, k=1.2)
-    fig, ax = plt.subplots(figsize=(8, 6))
+    net = Network(height="600px", width="100%", directed=True,
+                  notebook=False, cdn_resources="in_line")
 
-    node_colors = ["#ffa94d" if n in (picked_src, picked_dest) else "#74c0fc" for n in G.nodes()]
-    edge_colors = ["red" if (u, v) == (picked_src, picked_dest) else "gray" for u, v in G.edges()]
-    edge_widths = [2.5 if (u, v) == (picked_src, picked_dest) else 1.2 for u, v in G.edges()]
+    for _, r in txns.iterrows():
+        u, v = r["src"], r["dest"]
+        lbl = str(r["Amount Paid"])
 
-    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=800, ax=ax)
-    nx.draw_networkx_labels(G, pos, font_size=7, ax=ax)
-    nx.draw_networkx_edges(G, pos, edge_color=edge_colors, width=edge_widths,
-                            arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.1", ax=ax)
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6, ax=ax)
-    ax.set_axis_off()
-    return fig
+        u_color = "#ffa94d" if u in (picked_src, picked_dest) else "#74c0fc"
+        v_color = "#ffa94d" if v in (picked_src, picked_dest) else "#74c0fc"
+        net.add_node(u, label=u, color=u_color, title=f"Account: {u}")
+        net.add_node(v, label=v, color=v_color, title=f"Account: {v}")
+
+        is_picked_edge = (u == picked_src and v == picked_dest)
+        edge_color = "red" if is_picked_edge else "gray"
+        edge_width = 3 if is_picked_edge else 1
+        net.add_edge(u, v, title=f"Amount Paid: {lbl}", label=lbl,
+                     color=edge_color, width=edge_width)
+
+    net.toggle_physics(True)
+    html = net.generate_html()
+    freeze_physics_js = """
+<script type="text/javascript">
+  network.once("stabilizationIterationsDone", function () {
+    network.setOptions({ physics: false });
+  });
+</script>
+"""
+    return html.replace("</body>", freeze_physics_js + "</body>")
 
 st.set_page_config(page_title="Fraud detection", layout="wide")
 
@@ -164,8 +169,6 @@ def _load_test_with_scores_impl(_model):
 
 
 def load_test_with_scores(_model):
-    # session_state thay vì @st.cache_data: cache_data pickle toàn bộ (raw, X) mỗi lần ghi/đọc
-    # cache, tốn gấp đôi RAM tức thời (bản gốc + bản serialize) -> MemoryError trên máy ít RAM.
     if "raw_df" not in st.session_state:
         st.session_state.raw_df, st.session_state.X_df = _load_test_with_scores_impl(_model)
     return st.session_state.raw_df, st.session_state.X_df
@@ -256,9 +259,10 @@ if st.button("Xem chi tiết") and picked is not None:
                 use_container_width=True,
             )
             st.write("**Sơ đồ mạng lưới giao dịch trong chuỗi rửa tiền này "
-                     "(mũi tên = dòng tiền, số cạnh = row_id ở cột bên trái bảng trên):**")
-            fig = draw_fraud_network(row_raw, related, picked)
-            st.pyplot(fig)
+                     "(mũi tên = dòng tiền, số cạnh = row_id ở cột bên trái bảng trên; "
+                     "kéo thả / cuộn để zoom):**")
+            net_html = draw_fraud_network_interactive(row_raw, related, picked)
+            st.components.v1.html(net_html, height=620, scrolling=True)
         else:
             st.caption("Không tìm thấy giao dịch liên quan nào khác trong tập test (attempt chỉ có "
                        "1 giao dịch trong test, hoặc phần còn lại nằm ở tập train/val).")
