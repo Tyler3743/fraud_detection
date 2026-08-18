@@ -15,7 +15,6 @@ GRAPH_SPLITS = {                       # cấu trúc lũy tiến chuẩn Altman
 
 
 def build_vocab(df):
-    """Vocab node DÙNG CHUNG cho cả 3 graph -> embedding khớp index giữa các split."""
     a = df[["src", "From Bank"]].rename(columns={"src": "node", "From Bank": "bank"})
     b = df[["dest", "To Bank"]].rename(columns={"dest": "node", "To Bank": "bank"})
     nodes = (pd.concat([a.drop_duplicates("node"), b.drop_duplicates("node")])
@@ -56,15 +55,13 @@ def main():
     df = load_data()
     node_id, x, n_bank = build_vocab(df)
     print(f"vocab: {len(node_id):,} node | {n_bank:,} bank")
-
     graphs = {n: build_graph(n, node_id, x) for n in GRAPH_SPLITS}
     os.makedirs(os.path.dirname(GRAPHS_PT), exist_ok=True)
-    torch.save({"graphs": graphs, "num_banks": n_bank}, GRAPHS_PT)
-
-    # ánh xạ giao dịch -> (node gửi, node nhận), theo ĐÚNG thứ tự file gốc
+    torch.save({"graphs": graphs, "num_banks": n_bank}, GRAPHS_PT) #tạo file graph.pt
     df = df.sort_values("ori_idx")
     txn = np.stack([node_id.reindex(df["src"]).to_numpy(),
-                    node_id.reindex(df["dest"]).to_numpy()]).astype(np.int64).T
+                    node_id.reindex(df["dest"]).to_numpy()]).astype(np.int64).T 
+    # ép .npy để khi train_gnn đọc file nhanh hơn
     np.save(TXN_NODES, txn)
     print(f"đã lưu {GRAPHS_PT} và {TXN_NODES} shape={txn.shape}")
 
