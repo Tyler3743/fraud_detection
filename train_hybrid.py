@@ -21,9 +21,9 @@ ARMS_P1  = [("baseline",  None,               0,        False),
             ("edge_scalar", "ssl_lstm",         N_SCALAR, False)]  
 
 P2_EXTRA = 2 * EMB_DIM + N_SCALAR                    
-ARMS_P2  = [("edge_emb", "ssl_lstm",         2 * EMB_DIM,            True),   
-            ("edge+scalar", "ssl_lstm",         2 * EMB_DIM + N_SCALAR, True),  
-            ("no_edge", "ssl_noedge_lstm",  2 * EMB_DIM,            True)]   
+ARMS_P2  = [("edge_emb", "ssl_lstm",2 * EMB_DIM, True),   
+            ("edge+scalar", "ssl_lstm",2 * EMB_DIM + N_SCALAR, True),  
+            ("no_edge", "ssl_noedge_lstm",2 * EMB_DIM,True)]   
 
 
 def alloc(n_extra):
