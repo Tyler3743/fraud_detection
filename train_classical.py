@@ -115,18 +115,12 @@ def load_split(split):
     return df.to_numpy(dtype="float32"), y, list(df.columns)
 
 def mean_score(name, split):
-    """Trung bình điểm dự đoán qua 5 seed -> 1 vector điểm cho mỗi model."""
     return np.mean([np.load(f"scores/{name}_seed{s}_{split}.npy") for s in SEEDS], axis=0)
 
 CM_TAGS = [["TN", "FP"], ["FN", "TP"]]
 
 
 def draw_cm(ax, cm, title, fontsize=13):
-    """Vẽ 1 ma trận 2x2: mỗi ô = nhãn TN/FP/FN/TP + số đếm + tỉ lệ theo hàng.
-
-    Tô màu theo tỉ lệ hàng (không theo số đếm), nếu không ô TP ~1.8K
-    sẽ trắng hoàn toàn so với ô TN ~1.01M.
-    """
     cmn = cm / cm.sum(axis=1, keepdims=True)
     ax.imshow(cmn, cmap="Blues", vmin=0.0, vmax=1.0)
     for a in range(2):
@@ -135,23 +129,18 @@ def draw_cm(ax, cm, title, fontsize=13):
                     f"{CM_TAGS[a][b]}\n{cm[a, b]:,.0f}\n({cmn[a, b]:.4f})",
                     ha="center", va="center", fontsize=fontsize, linespacing=1.7,
                     color="white" if cmn[a, b] > 0.5 else "black")
-    ax.set_xticks([0, 1], ["dự đoán\nhợp lệ", "dự đoán\nrửa tiền"], fontsize=9)
-    ax.set_yticks([0, 1], ["thật\nhợp lệ", "thật\nrửa tiền"], fontsize=9)
+    ax.set_xticks([0, 1], ["dự đoán\nbình tường", "dự đoán\nrửa tiền"], fontsize=9)
+    ax.set_yticks([0, 1], ["nhãn\nbình thường", "nhãn\nrửa tiền"], fontsize=9)
     ax.set_title(title, fontsize=11) 
 
 def plot_confusion_matrices(y_val, y_test, names, path=None):
-    """Hàng trên: số đếm thật. Hàng dưới: chuẩn hóa theo hàng (đường chéo = recall).
-
-    Cả hai panel tô màu theo tỉ lệ hàng, nếu tô theo số đếm thì ô TP (~1.8K)
-    sẽ trắng hoàn toàn so với ô TN (~1.01M).
-    """
     os.makedirs(FIG_DIR, exist_ok=True)
     path = path or f"{FIG_DIR}/confusion_matrix_test.png"
     fig, axes = plt.subplots(2, len(names), figsize=(4.0 * len(names), 8.0))
     axes = np.atleast_2d(axes).reshape(2, len(names))
 
     for j, name in enumerate(names):
-        thr = find_best_threshold(y_val, mean_score(name, "val"))
+        thr = find_best_threshold(y_val, mean_score(name, "val"))#dò ngưỡng
         y_pred = (mean_score(name, "test") >= thr).astype(int)
         cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
         cmn = cm / cm.sum(axis=1, keepdims=True)
@@ -185,7 +174,6 @@ def plot_confusion_matrices(y_val, y_test, names, path=None):
 
 
 def print_summary(rows):
-    """Bảng mean±std f1_minority theo model, xếp hạng theo f1 test."""
     d = pd.DataFrame(rows)
     piv = d.pivot_table(index="model", columns="split", values="f1",
                         aggfunc=["mean", "std"])
@@ -238,7 +226,7 @@ def main():
 
             thr = find_best_threshold(y_val, s_val)
             for split, y, s in [("val", y_val, s_val), ("test", y_test, s_test)]:
-                m = evaluate(y, s, thr)
+                m = evaluate(y, s, thr)#độ đo
                 log_result(name, split, m, seed=seed, train_time_s=train_time_s,
                            stage="final", params=json.dumps(PARAMS[name]))
                 rows.append({"model": name, "split": split, "seed": seed,

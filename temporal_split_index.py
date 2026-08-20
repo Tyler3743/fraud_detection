@@ -2,7 +2,7 @@ import pandas as pd
 
 #ép kiểu phòng trường hợp pandas đọc thành int và có số 0 đầu sẽ bỏ số 0 đầu sẽ làm sai dữ liệu khi tạo node
 dtype={"From Bank":str, "To Bank": str, "Account":str, "Account.1": str}
-df_trans=pd.read_csv("dataset_high/HI-Small_Trans.csv",dtype=dtype)
+df_trans=pd.read_csv("dataset_high/LI-Small_Trans.csv",dtype=dtype)
 
 #sắp xếp dataframe theo timestamp
 order = df_trans["Timestamp"].sort_values(kind="mergesort").index
@@ -23,5 +23,5 @@ assert df_trans[df_trans.split == "train"]["Timestamp"].max() < df_trans[df_tran
 assert df_trans[df_trans.split == "val"]["Timestamp"].max() < df_trans[df_trans.split == "test"]["Timestamp"].min()
 
 # xuất file csv
-df_trans.to_csv("dataset_high/HI-Small_Trans_split_index.csv", index=False)
-print(f"Đã lưu: {'dataset_high/HI-Small_Trans_split_index.csv'}")
+df_trans.to_csv("dataset_high/LI-Small_Trans_split_index.csv", index=False)
+print(f"Đã lưu: {'dataset_high/LI-Small_Trans_split_index.csv'}")

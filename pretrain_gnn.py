@@ -23,19 +23,18 @@ STEPS       = 600
 EDGE_BATCH  = 65_536
 LR          = 3e-3
 EVAL_EVERY  = 20
-PATIENCE    = 8                  
+PATIENCE    = 20                  
 NEG_POW     = 0.75               
 
 
 def load_graphs():
-    """Nạp 3 đồ thị lũy tiến + node_seq. Không đụng tới nhãn."""
-    blob = torch.load(GRAPHS_PT, weights_only=False)
-    graphs, num_banks = blob["graphs"], blob["num_banks"]
+    graph = torch.load(GRAPHS_PT, weights_only=False)# load 3 đồ thị train, val, test
+    graphs, num_banks = graph["graphs"], graph["num_banks"]
     for s, g in graphs.items():
         g.node_seq = torch.from_numpy(np.load(NODE_SEQ.format(s)))
-        graphs[s] = g.to(DEV)
+        graphs[s] = g.to(DEV) #
     tx_dim = len(pq.ParquetFile(TXN_MATRIX.format("train")).schema_arrow.names) - 1
-    return graphs, num_banks, tx_dim
+    return graphs, num_banks, tx_dim #đồ thị, lập bank ID, số chiều của mỗi đặc trưng
 
 
 def split_edges(g, seed):
@@ -43,9 +42,9 @@ def split_edges(g, seed):
     ei = g.edge_index[:, :E].cpu().numpy().astype(np.int64)
     lo, hi = np.minimum(ei[0], ei[1]), np.maximum(ei[0], ei[1])
     uniq, inv = np.unique(lo * g.num_nodes + hi, return_inverse=True)
-    perm = np.random.default_rng(seed).permutation(len(uniq))
-    n_mp, n_sup = int(len(uniq) * MP_FRAC), int(len(uniq) * SUP_FRAC)
-
+    perm = np.random.default_rng(seed).permutation(len(uniq)) #permutation: hoán vị
+    n_mp, n_sup = int(len(uniq) * MP_FRAC), int(len(uniq) * SUP_FRAC) #number of message passing= số lượng cạnh truyền tin
+    #number supervision= số lượng cạnh giám sát
     bucket = np.empty(len(uniq), dtype=np.int8)
     bucket[perm[:n_mp]] = 0
     bucket[perm[n_mp:n_mp + n_sup]] = 1

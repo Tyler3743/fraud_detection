@@ -45,7 +45,6 @@ PATTERN_EXPLAIN = {
 }
 
 def draw_fraud_network_interactive(row_raw, related, picked_row_id):
-    """Vẽ mạng lưới tài khoản trong cùng chuỗi rửa tiền (kéo thả, zoom được), tô đậm giao dịch đang xem."""
     txns = pd.concat([related, row_raw.to_frame().T], ignore_index=True)
     txns["src"] = txns["From Bank"] + "|" + txns["Account"]
     txns["dest"] = txns["To Bank"] + "|" + txns["Account.1"]
@@ -176,7 +175,6 @@ def load_test_with_scores(_model):
 
 @st.cache_data
 def group_means(_model):
-    """Trung bình từng đặc trưng của nhóm gian lận vs nhóm bình thường trên tập test."""
     X, y = load_feature_matrix("test")
     return X.assign(is_laundering=y).groupby("is_laundering").mean()
 
@@ -189,9 +187,9 @@ raw["cảnh báo"] = np.where(raw["score"] >= threshold, "GIAN LẬN", "bình th
 gmeans = group_means(model)
 
 st.title("Demo phát hiện giao dịch rửa tiền")
-st.caption(f"Model: baseline_lgb_seed0 (nhóm 1, LightGBM, 90 đặc trưng) | "
-           f"Ngưỡng tune trên val: {threshold:.4f} | Tập test: {len(raw):,} giao dịch, "
-           f"{int(raw['Is Laundering'].sum()):,} gian lận")
+# st.caption(f"Model: baseline_lgb_seed0 (nhóm 1, LightGBM, 90 đặc trưng) | "
+#            f"Ngưỡng tune trên val: {threshold:.4f} | Tập test: {len(raw):,} giao dịch, "
+#            f"{int(raw['Is Laundering'].sum()):,} gian lận")
 
 if "pos" not in st.session_state:
     st.session_state.pos = 0

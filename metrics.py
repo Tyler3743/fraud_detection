@@ -6,7 +6,7 @@ from sklearn.metrics import (
     average_precision_score, precision_recall_curve, roc_curve,
 )
 
-RESULTS_PATH = "results.csv"
+RESULTS_PATH = "results-LI.csv"
 
 COLUMNS = ["model", "split", "time", "f1_minority", "f1@0.5","precision", "recall",
            "pr_auc", "recall@fpr1%", "precision@1000", "threshold",
@@ -51,7 +51,6 @@ def evaluate(y_true, y_score, threshold=0.5):
 
 
 def evaluate_val_test(y_val, s_val, y_test, s_test):
-    """Quy trinh chuan: tune threshold tren val -> danh gia ca val va test."""
     thr = find_best_threshold(y_val, s_val)
     return {
         "val": evaluate(y_val, s_val, thr),
@@ -64,4 +63,4 @@ def log_result(model, split, metrics, path=RESULTS_PATH, **extra):
            "time": pd.Timestamp.now().isoformat(timespec="seconds"),
            **metrics, **extra}
     df = pd.DataFrame([row]).reindex(columns=COLUMNS)
-    df.to_csv(path, mode="a", index=False, header=not os.path.exists(path))
+    df.to_csv(path, mode="w", index=False, header=not os.path.exists(path))
