@@ -46,15 +46,15 @@ def build_graph(name, node_id, x):
     )
     deg = torch.bincount(data.edge_index[0], minlength=data.num_nodes)
     print(f"  {name:5s}: {data.num_nodes:,} node | {fwd.size(1):,} cạnh có hướng "
-          f"-> {data.edge_index.size(1):,} sau cạnh ngược | "
-          f"edge_attr {tuple(data.edge_attr.shape)} | node cô lập {int((deg == 0).sum()):,}")
+          f"-> {data.edge_index.size(1):,} sau khi thêm cạnh ngược | "
+          f"edge_attr {tuple(data.edge_attr.shape)} | số tài khoản không có giao dịch nào {int((deg == 0).sum()):,}")
     return data
 
 
 def main():
     df = load_data()
     node_id, x, n_bank = build_vocab(df)
-    print(f"vocab: {len(node_id):,} node | {n_bank:,} bank")
+    print(f"số tài khoản có phát sinh giao dịch trong toàn bộ dữ liệu giao dịch: {len(node_id):,} tài khoản")
     graphs = {n: build_graph(n, node_id, x) for n in GRAPH_SPLITS}
     os.makedirs(os.path.dirname(GRAPHS_PT), exist_ok=True)
     torch.save({"graphs": graphs, "num_banks": n_bank}, GRAPHS_PT) #tạo file graph.pt

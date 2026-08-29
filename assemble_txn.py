@@ -55,8 +55,7 @@ def main():
         out = f"{data_dir}/txn_matrix_{s}.parquet"
         matrix.to_parquet(out, index=False)
         n_pos = int(matrix[label].sum())
-        print(f"{s:5s}: {len(matrix):>9,} dòng | {len(names)} feature | "
-              f"{n_pos:,} pos ({n_pos/len(matrix)*100:.3f}%) -> {out}")
+        print(f"{s:5s}: {len(matrix):>9,} dòng | " f"{n_pos:,} gian lận ({n_pos/len(matrix)*100:.3f}% gian lận) -> {out}")
         del matrix; gc.collect()
 
 if __name__ == "__main__":

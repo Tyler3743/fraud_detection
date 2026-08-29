@@ -1,193 +1,169 @@
+import os
 import gc
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
-from feature_node import load_data
-from paths import EDGE_ATTR
+from feature_node import load_data      # đã sort Timestamp + tạo src/dest + cờ
+from paths import EDGE_ATTR, OUT_DIR
 
-DELTA_H = 6                                  # độ dài cửa sổ trượt
-NS = 1_000_000_000
-
-# Cột sinh ra trong cửa sổ, theo thứ tự ghi ra file
-WIN_COLS = [
-    "w_deg_out_u", "w_deg_in_u", "w_deg_out_v", "w_deg_in_v",
-    "w_fan_out_u", "w_fan_in_u", "w_fan_out_v", "w_fan_in_v",
-    "w_amt_out_u", "w_amt_in_v",
-    "w_pair_cnt", "w_recip_cnt", "w_scatter", "w_gather",
-    "w_ratio_cross_bank_u", "w_ratio_cross_ccy_u",
+EDGE_RANK_COLS = [
+    "num_tx", "total_paid", "mean_paid", "std_paid",
+    "min_paid", "max_paid", "active_hour", "tx_per_hour",
+    "port_out", "port_in",
 ]
-STATIC_COLS = ["is_cross_bank", "is_self_loop"]
-FEAT_COLS = WIN_COLS + STATIC_COLS
-# cột dạng đếm/tổng -> log1p trước khi chuẩn hoá; hai cột ratio và hai cột cờ thì không
-LOG_COLS = WIN_COLS[:14]
 
-GRAPH_SPLITS = {                             
-    "train": ["train"],
-    "val":   ["train", "val"],
-    "test":  ["train", "val", "test"],
+TRAIN_A_FRAC = 0.5                                      
+TRAIN_B_MASK = os.path.join(OUT_DIR, "train_b_mask.npy")
+
+WINDOWS = {
+    "train": (["train_a"],                    ["train_a", "train_b"]),
+    "val":   (["train_a", "train_b"],         ["train_a", "train_b", "val"]),
+    "test":  (["train_a", "train_b", "val"],  ["train_a", "train_b", "val", "test"]),
 }
 
 
-def sliding_window(t, u, v, amt, cb, cc, n_node, delta_ns, log_every=500_000):
-    n = len(t)
-    lo_of = np.searchsorted(t, t - delta_ns, side="left")   # biên trái, không giảm
+def add_subsplit(df):
+    """Cắt cửa sổ train theo THỜI GIAN: train_a (tính feature) / train_b (nhãn để train)."""
+    df["win"] = df["split"]
+    tr = np.flatnonzero((df["split"] == "train").to_numpy())
+    ts_cut = df["Timestamp"].iloc[tr[int(len(tr) * TRAIN_A_FRAC)]]
 
-    # đếm theo node: dùng list Python, nhanh hơn hẳn numpy khi truy cập vô hướng
-    deg_out = [0] * n_node
-    deg_in = [0] * n_node
-    fan_out = [0] * n_node
-    fan_in = [0] * n_node
-    amt_out = [0.0] * n_node
-    amt_in = [0.0] * n_node
-    cb_out = [0.0] * n_node
-    cc_out = [0.0] * n_node
-    pc = {}                                                  # pair_key -> số giao dịch trong cửa sổ
+    is_b = (df["split"] == "train") & (df["Timestamp"] >= ts_cut)
+    df.loc[is_b, "win"] = "train_b"
+    df.loc[(df["split"] == "train") & ~is_b, "win"] = "train_a"
 
-    out = np.zeros((n, len(WIN_COLS)), dtype="float32")
-    lo = 0
-    for i in range(n):
-        ui = u[i]; vi = v[i]
-        k = ui * n_node + vi
+    a, b = df[df.win == "train_a"], df[df.win == "train_b"]
+    assert len(a) and len(b), "train_a hoặc train_b rỗng"
+    assert a["Timestamp"].max() < b["Timestamp"].min(), "train_a/train_b chồng lấn thời gian"
+    print(f"  cắt train tại {ts_cut} | train_a {len(a):,} dòng "
+          f"(pos {int(a['Is Laundering'].sum()):,}) | train_b {len(b):,} dòng "
+          f"(pos {int(b['Is Laundering'].sum()):,})")
 
-        # --- nạp dòng i vào cửa sổ ---
-        c = pc.get(k, 0)
-        pc[k] = c + 1
-        if c == 0:                                           # cặp mới -> đổi fan hai đầu
-            fan_out[ui] += 1
-            fan_in[vi] += 1
-        deg_out[ui] += 1
-        deg_in[vi] += 1
-        a = amt[i]
-        amt_out[ui] += a
-        amt_in[vi] += a
-        cb_out[ui] += cb[i]
-        cc_out[ui] += cc[i]
+    # mask theo THỨ TỰ FILE GỐC để train_gnn.py ghép đúng dòng
+    mask = np.zeros(len(df), dtype=bool)
+    mask[df["ori_idx"].to_numpy()] = is_b.to_numpy()
+    np.save(TRAIN_B_MASK, mask)
+    print(f"  đã lưu {TRAIN_B_MASK}")
+    return df
 
-        # --- nhả các dòng đã rơi khỏi cửa sổ ---
-        li = lo_of[i]
-        while lo < li:
-            uo = u[lo]; vo = v[lo]
-            ko = uo * n_node + vo
-            co = pc[ko] - 1
-            if co == 0:
-                del pc[ko]
-                fan_out[uo] -= 1
-                fan_in[vo] -= 1
-            else:
-                pc[ko] = co
-            deg_out[uo] -= 1
-            deg_in[vo] -= 1
-            ao = amt[lo]
-            amt_out[uo] -= ao
-            amt_in[vo] -= ao
-            cb_out[uo] -= cb[lo]
-            cc_out[uo] -= cc[lo]
-            lo += 1
+def aggregate_edges(win: pd.DataFrame, formats, currencies):
+    """Thống kê cạnh gộp trên cửa sổ NGUỒN. Không đụng tới 'Is Laundering'."""
+    g = win.groupby(["src", "dest"], sort=False)
+    agg = g.agg(
+        num_tx          = ("Amount Paid", "size"),
+        total_paid      = ("Amount Paid", "sum"),
+        mean_paid       = ("Amount Paid", "mean"),
+        std_paid        = ("Amount Paid", "std"),
+        min_paid        = ("Amount Paid", "min"),
+        max_paid        = ("Amount Paid", "max"),
+        cross_ccy_ratio = ("is_cross_curcy", "mean"),
+        time_min        = ("Timestamp", "min"),
+        time_max        = ("Timestamp", "max"),
+    )
+    agg["std_paid"] = agg["std_paid"].fillna(0.0)         
+    span_h = (agg["time_max"] - agg["time_min"]).dt.total_seconds() / 3600.0
+    agg["active_hour"] = span_h.clip(lower=1.0)
+    agg["tx_per_hour"] = agg["num_tx"] / agg["active_hour"]
 
-        # --- đọc đặc trưng ---
-        do_u = deg_out[ui]
-        rev = pc.get(vi * n_node + ui, 0)                    # chu trình độ dài 2
-        fo_v = fan_out[vi]
-        r = out[i]
-        r[0] = do_u
-        r[1] = deg_in[ui]
-        r[2] = deg_out[vi]
-        r[3] = deg_in[vi]
-        r[4] = fan_out[ui]
-        r[5] = fan_in[ui]
-        r[6] = fo_v
-        r[7] = fan_in[vi]
-        r[8] = amt_out[ui]
-        r[9] = amt_in[vi]
-        r[10] = pc[k]
-        r[11] = rev
-        # scatter: v chuyển tiếp cho bao nhiêu đích KHÁC u (u -> v -> w)
-        r[12] = fo_v - (1 if rev else 0)
-        # gather: u gom từ bao nhiêu nguồn KHÁC v trước khi gửi cho v (x -> u -> v)
-        r[13] = fan_in[ui] - (1 if rev else 0)
-        r[14] = cb_out[ui] / do_u
-        r[15] = cc_out[ui] / do_u
+    # Đánh số cổng theo mốc thời gian (Multi-GNN mục 4.2): mọi cạnh tới cùng một láng
+    # giềng nhận cùng số cổng; thứ tự do timestamp SỚM NHẤT của cặp quyết định. Tính
+    # trên cửa sổ NGUỒN nên vẫn trễ pha, không đụng dữ liệu của kỳ được gán nhãn.
+    tmin = agg["time_min"].astype("int64")
+    agg["port_out"] = tmin.groupby(level="src").rank(method="first")
+    agg["port_in"] = tmin.groupby(level="dest").rank(method="first")
 
-        if log_every and (i + 1) % log_every == 0:
-            print(f"    {i + 1:>9,}/{n:,} dòng | cửa sổ đang giữ {i - lo + 1:>8,} dòng "
-                  f"| {len(pc):>8,} cặp")
-    return out
+    agg = agg.drop(columns=["time_min", "time_max"])
+
+    keys = [win["src"], win["dest"]]
+    for col, names, prefix in [("Payment Format", formats, "pf"),
+                               ("Payment Currency", currencies, "ccy")]:
+        d = pd.get_dummies(win[col]).astype("float32").reindex(columns=names, fill_value=0.0)
+        prop = d.groupby(keys, sort=False).mean()
+        prop.columns = [f"{prefix}_{c.replace(' ', '_')}" for c in names]
+        agg = agg.join(prop)
+    return agg
 
 
-def build(df):
-    """Trả về DataFrame [n_tx, feature] theo ĐÚNG thứ tự file gốc."""
-    node = pd.factorize(pd.concat([df["src"], df["dest"]], ignore_index=True),
-                        sort=False)[0]
-    n = len(df)
-    u = node[:n].astype("int64")
-    v = node[n:].astype("int64")
-    n_node = int(node.max()) + 1
+def build_window(df, src_splits, graph_splits, formats, currencies):
+    s_window = df[df["win"].isin(src_splits)]      
+    g_window = df[df["win"].isin(graph_splits)]    
+    edges = g_window.groupby(["src", "dest"], sort=False).agg(
+        is_cross_bank = ("is_cross_bank", "max"),
+        is_self_loop  = ("is_self_loop",  "max"),
+    ).astype("int8")
 
-    t = df["time"].to_numpy("int64")
-    assert (np.diff(t) >= 0).all(), "load_data phải trả về df đã sắp theo Timestamp"
+    agg = aggregate_edges(s_window, formats, currencies)
 
-    print(f"  {n:,} giao dịch | {n_node:,} node | cửa sổ {DELTA_H}h")
-    w = sliding_window(t, u, v,
-                       df["Amount Paid"].to_numpy("float64"),
-                       df["is_cross_bank"].to_numpy("float64"),
-                       df["is_cross_curcy"].to_numpy("float64"),
-                       n_node, DELTA_H * 3600 * NS)
-
-    out = pd.DataFrame(w, columns=WIN_COLS, index=df.index)
-    out["is_cross_bank"] = df["is_cross_bank"].to_numpy("float32")
-    out["is_self_loop"] = (df["src"] == df["dest"]).to_numpy().astype("float32")
-    out["src"] = df["src"].to_numpy()
-    out["dest"] = df["dest"].to_numpy()
-    out["split"] = df["split"].to_numpy()
-    out["ori_idx"] = df["ori_idx"].to_numpy()
-    return out.sort_values("ori_idx").reset_index(drop=True)
+    feat = edges.join(agg, how="left")
+    feat["seen_before"] = feat["num_tx"].notna().astype("int8")
+    return feat.fillna(0.0)
 
 
-def verify(df, feat, n_head=1_000_000):
-    banned = {"Is Laundering", "is_mule", "is_edge_mule"}
-    assert not (banned & set(feat.columns)), "có cột suy từ nhãn lọt vào edge_attr"
+def rank_edges(feats, cols):
+    for name, f in feats.items():
+        r = f[cols].astype("float64")
+        r[f["seen_before"] == 0] = np.nan       
+        f[cols] = r.rank(pct=True).fillna(0.0)  
+        feats[name] = f
+    return feats
 
-    n_head = min(n_head, len(df) // 2)
-    head = build(df.iloc[:n_head].copy()).sort_values("ori_idx")
-    ref = feat.set_index("ori_idx").loc[head["ori_idx"].to_numpy(), FEAT_COLS]
-    bad = ~np.isclose(head[FEAT_COLS].to_numpy("float64"),
-                      ref.to_numpy("float64"), rtol=0, atol=1e-4)
-    assert not bad.any(), (
-        f"{int(bad.any(1).sum()):,} dòng lệch khi cắt đuôi dữ liệu; "
-        f"cột đầu tiên lệch = {np.array(FEAT_COLS)[bad.any(0)][:5]}")
-    print(f"  PASS: {n_head:,} dòng đầu không đổi khi bỏ toàn bộ phần sau")
+def verify(df, feats, formats, currencies):
+    # 1. không có cột nào suy từ nhãn
+    banned = {"is_edge_mule", "is_mule", "Is Laundering"}
+    for name, f in feats.items():
+        assert not (banned & set(f.columns)), f"{name} còn cột suy từ nhãn"
 
-    for s in ("train", "val", "test"):
-        m = feat["split"] == s
-        nz = (feat.loc[m, WIN_COLS].to_numpy() != 0).any(1).mean()
-        print(f"  {s:5s}: {int(m.sum()):>9,} dòng | có ít nhất 1 đặc trưng khác 0: {nz*100:5.2f}%")
+    for name, target in [("train", "train_b"), ("val", "val")]:
+        shuffled = df.copy()
+        m = shuffled["win"] == target
+        assert m.sum() > 0, f"không có dòng nào thuộc {target} -> add_subsplit chưa chạy"
+        rng = np.random.default_rng(0)
+        shuffled.loc[m, "Amount Paid"] = rng.permutation(shuffled.loc[m, "Amount Paid"].values)
+        ref = build_window(shuffled, *WINDOWS[name], formats, currencies)
+        assert ref[list(feats[name].columns)].equals(feats[name]), \
+            f"edge_attr {name} ĐANG phụ thuộc {target} -> leak"
+        del shuffled, ref
+        gc.collect()
 
-
-def scale(feat):
-    feat[LOG_COLS] = np.log1p(feat[LOG_COLS].clip(lower=0))
-    tr = (feat["split"] == "train").to_numpy()
-    sc = StandardScaler().fit(feat.loc[tr, LOG_COLS].to_numpy("float64"))
-    feat[LOG_COLS] = sc.transform(feat[LOG_COLS].to_numpy("float64")).astype("float32")
-    return feat
+    for name, f in feats.items():
+        r = 1 - f["seen_before"].mean()
+        print(f"  {name:5s}: {len(f):>9,} cạnh | cold-start {r*100:5.2f}%")
+    cc = {n: feats[n].loc[feats[n]["seen_before"] == 1, EDGE_RANK_COLS]
+                     .corr().abs().fillna(0.0) for n in ("train", "test")}
+    gap = (cc["train"] - cc["test"]).abs().to_numpy(copy=True)
+    np.fill_diagonal(gap, 0.0)
+    bad = (cc["train"].to_numpy() > 0.99) & (gap > 0.05)
+    np.fill_diagonal(bad, False)
+    assert not bad.any(), "cột trùng ở train nhưng tách ở test: " + ", ".join(
+        f"{EDGE_RANK_COLS[a]}~{EDGE_RANK_COLS[b]} "
+        f"(train {cc['train'].iloc[a, b]:.4f} -> test {cc['test'].iloc[a, b]:.4f})"
+        for a, b in zip(*np.where(np.triu(bad, 1))))
+    i, j = np.unravel_index(gap.argmax(), gap.shape)
+    print(f"  PASS: chênh |corr| train-test lớn nhất = {gap[i, j]:.4f} "
+          f"({EDGE_RANK_COLS[i]} ~ {EDGE_RANK_COLS[j]})")
 
 
 def main():
     df = load_data()
-    print("dựng đặc trưng cửa sổ trượt:")
-    feat = build(df)
-    print("kiểm tra:")
-    verify(df, feat)
-    feat = scale(feat)
+    df["is_self_loop"] = (df["src"] == df["dest"]).astype("int8")
+    df = add_subsplit(df)
 
-    cols = ["src", "dest"] + FEAT_COLS
-    for name, splits in GRAPH_SPLITS.items():
-        sub = feat[feat["split"].isin(splits)]
+    # vocab chốt trên train để tập cột ổn định giữa 3 file
+    tr = df[df["split"] == "train"]
+    formats    = sorted(tr["Payment Format"].unique())
+    currencies = sorted(tr["Payment Currency"].unique())
+
+    feats = {n: build_window(df, *w, formats, currencies) for n, w in WINDOWS.items()}
+    cols = list(feats["train"].columns)
+    feats = {n: f[cols] for n, f in feats.items()}          # khoá thứ tự cột
+
+    verify(df, feats, formats, currencies)
+    feats = rank_edges(feats, EDGE_RANK_COLS)
+
+    for name, f in feats.items():
         p = EDGE_ATTR.format(name)
-        sub[cols].to_parquet(p, index=False)
-        print(f"  đã lưu {p} shape={sub[cols].shape} "
-              f"({sub[cols].memory_usage(deep=False).sum()/1e6:.0f} MB trong RAM)")
-        del sub; gc.collect()
+        f.reset_index().to_parquet(p, index=False)
+        print(f"  đã lưu {p} shape={f.shape}")
 
 
 if __name__ == "__main__":

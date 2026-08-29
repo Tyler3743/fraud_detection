@@ -1,4 +1,5 @@
-cơ bản:luồng dữ liệu là feature_node+feature_transaction->train_classical.py
+cơ bản:luồng dữ liệu là feature_node+feature_transaction->train_classical.py, huấn luyện 4 mô hình cây và 1 mô hình tuyến tính
+vì tính giải thích và độ ổn định và dễ thực hiện để so sánh baseline với nhau
 gnn:
 Giờ đọc pretrain_gnn.py và train_gnn.py để chốt hai bước huấn luyện cuối.Dựa trên code thực tế trong `ct551_v2` (đã đọc `temporal_split_index.py`, `feature_edge.py`, `feature_node.py`, `build_graph.py`, `node_seq.py`, `assemble_txn.py`, `pretrain_gnn.py`, `train_gnn.py`), pipeline chạy tuần tự như sau:
 
